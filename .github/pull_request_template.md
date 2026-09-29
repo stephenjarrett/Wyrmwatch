@@ -6,4 +6,4 @@ Describe the problem and the resulting behavior.
 
 Describe the focused checks performed. Use disposable fixtures, never a real server.
 
-- [ ] I have the right to contribute this material and accept the contribution terms in section 4 of LICENSE. Separately licensed material is identified with its notices.
+- [ ] I have the right to contribute this material under AGPL-3.0-only. Separately licensed material is identified with its notices.

@@ -6,9 +6,11 @@ An unofficial community tool, not affiliated with Jagex.
 
 ## License and contributions
 
-Wyrmwatch is publicly developed under the [Wyrmwatch Source-Available License](LICENSE). You may download, build, run, and privately modify it for personal or internal organizational use. Anyone can fork for contributions and open a pull request here; see [CONTRIBUTING.md](CONTRIBUTING.md).
+Wyrmwatch is open source under the [GNU Affero General Public License, version 3](LICENSE) (`AGPL-3.0-only`). You may use, modify, fork, and redistribute it, including commercially, subject to the license's source-sharing and notice requirements. See [NOTICE](NOTICE) for the copyright and license grant.
 
-Redistributing the app, publishing independent releases, or shipping rebranded versions requires Stephen Jarrett's prior written permission, subject to the license's contribution, GitHub, and legal-rights allowances. Sharing a link to this repository or its official downloads is welcome. These restrictions make the project **source-available**, rather than open source under the Open Source Definition. Third-party components retain their [own licenses](THIRD-PARTY-NOTICES.md).
+Anyone can contribute through issues and pull requests; see [CONTRIBUTING.md](CONTRIBUTING.md). Contributions back to this repository are encouraged, not required by the license. Distributing covered binaries requires providing the corresponding source under the AGPL's terms. If you modify the program and let users interact with it remotely over a network, section 13 requires offering those users the corresponding source. Third-party components retain their [own licenses](THIRD-PARTY-NOTICES.md).
+
+Portable builds include `Wyrmwatch-source.zip` containing the project source and build scripts, plus `SOURCE.md` with the build revision. The application is provided without warranty.
 
 ## MVP
 

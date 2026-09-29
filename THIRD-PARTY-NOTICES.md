@@ -1,6 +1,6 @@
 # Third-party notices
 
-Wyrmwatch's source-available license covers its original project material. It does not replace or restrict the separate licenses of these components. Their copyright notices and full license texts are included in [licenses/third-party](licenses/third-party). Files in that directory are reproduced from their upstream sources or the installed NuGet packages.
+Wyrmwatch's original project material is licensed under AGPL-3.0-only. The components listed here retain their separate licenses. Their copyright notices and full license texts are included in [licenses/third-party](licenses/third-party). Files in that directory are reproduced from their upstream sources or the installed NuGet packages.
 
 | Component | Version in this build | License / included notices |
 | --- | --- | --- |

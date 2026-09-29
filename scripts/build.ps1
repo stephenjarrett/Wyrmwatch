@@ -17,7 +17,7 @@ try {
         & $dotnet publish src/Dragonwilds.Signal -c Release -r $Runtime --self-contained true -o "dist/$Runtime"
         if($LASTEXITCODE -ne 0){throw 'Shutdown helper publish failed'}
     }
-    foreach($document in @('README.md','LICENSE','CONTRIBUTING.md','THIRD-PARTY-NOTICES.md')) {
+    foreach($document in @('README.md','LICENSE','NOTICE','CONTRIBUTING.md','THIRD-PARTY-NOTICES.md')) {
         Copy-Item -LiteralPath $document -Destination "dist/$Runtime/$document"
     }
     Copy-Item -LiteralPath licenses -Destination "dist/$Runtime" -Recurse -Force
@@ -39,5 +39,35 @@ try {
     }
     if(-not $runtimeNoticesCopied){throw 'Could not locate the publishing runtime license notices'}
     Copy-Item -LiteralPath LICENSE -Destination "dist/$Runtime/LICENSE.txt"
+    # Ship the project source used for this build, including local tracked edits.
+    $sourceFiles=git -c core.quotepath=false ls-files
+    if($LASTEXITCODE -ne 0){throw 'Could not list project source files'}
+    $revision=git rev-parse HEAD
+    if($LASTEXITCODE -ne 0){throw 'Could not identify the source revision'}
+    $modified=git status --porcelain --untracked-files=no
+    if($LASTEXITCODE -ne 0){throw 'Could not inspect source modifications'}
+    $sourceArchive=Join-Path $root "dist/$Runtime/Wyrmwatch-source.zip"
+    $sourceStream=[System.IO.File]::Open($sourceArchive,[System.IO.FileMode]::Create)
+    $zip=[System.IO.Compression.ZipArchive]::new($sourceStream,[System.IO.Compression.ZipArchiveMode]::Create)
+    try {
+        foreach($file in $sourceFiles) {
+            if(Test-Path -LiteralPath $file -PathType Leaf) {
+                [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip,(Join-Path $root $file),$file,[System.IO.Compression.CompressionLevel]::Optimal) | Out-Null
+            }
+        }
+    } finally { $zip.Dispose(); $sourceStream.Dispose() }
+    $sourceNote=if($modified){'Includes local tracked changes; the bundled archive is the source used for this build.'}else{'Built from the unmodified revision linked below.'}
+    @(
+        '# Wyrmwatch source',
+        '',
+        'License: GNU AGPL version 3 (AGPL-3.0-only). See LICENSE and NOTICE.',
+        '',
+        'Extract Wyrmwatch-source.zip for the project source, assets, and build scripts. See README.md inside for build instructions.',
+        '',
+        "Revision: https://github.com/stephenjarrett/Wyrmwatch/tree/$revision",
+        $sourceNote,
+        '',
+        'Third-party components retain their own licenses. THIRD-PARTY-NOTICES.md lists their versions, notices, and upstream sources.'
+    ) | Set-Content -LiteralPath "dist/$Runtime/SOURCE.md" -Encoding utf8
     Write-Host "Built: $root\dist\$Runtime"
 } finally { Pop-Location }
