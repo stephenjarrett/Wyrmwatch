@@ -215,7 +215,7 @@ public partial class MainWindow : Window
         {
             var folder = await Folder("Choose an empty folder for the new server"); if (folder is null) return;
             if (Directory.EnumerateFileSystemEntries(folder).Any()) { model.Notice = "Choose an empty folder. Existing files were preserved."; return; }
-            var p = new ServerProfile { Name = "New Dragonwilds server", InstallPath = folder, BackupPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "WyrmwatchBackups"), Port = ServerConnections.AvailablePort(model.Profiles) }; p.Validate();
+            var p = new ServerProfile { Name = "New Dragonwilds server", InstallPath = folder, BackupPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "WyrmwatchBackups") }; p.Validate();
             if (!await Confirm("Install a new server?", "SteamCMD will download the dedicated server into:\n" + folder + "\n\nThe server will remain stopped until you configure and start it.", "Install server")) return;
             p = await service!.SaveProfileAsync(p); model.Profiles.Add(p); model.SelectedProfile = p; LoadProfile();
             await Run(profile => service!.InstallAsync(profile)); Navigation.SelectedIndex = 5;

@@ -6,7 +6,6 @@ namespace Dragonwilds.Core.Tests;
 public class ConnectionTests
 {
     [Theory]
-    [InlineData("port")]
     [InlineData("same saves")]
     [InlineData("nested saves")]
     [InlineData("parent saves")]
@@ -19,7 +18,6 @@ public class ConnectionTests
         var second = b.Profile with { Port = 7778 };
         second = conflict switch
         {
-            "port" => second with { Port = a.Profile.Port },
             "same saves" => second with { DataPath = a.Profile.SavedPath },
             "nested saves" => second with { DataPath = Path.Combine(a.Profile.SavedPath, "nested") },
             "parent saves" => second with { DataPath = Path.GetDirectoryName(a.Profile.SavedPath)! },
@@ -35,26 +33,28 @@ public class ConnectionTests
     }
 
     [Fact]
-    public async Task SharedBackupDestinationAndEditingSameProfileAreAllowed()
+    public async Task SharedPortAndBackupDestinationAreAllowedForSavedServers()
     {
         using var a = new Fixture(); using var b = new Fixture();
         var host = new ManagerHost(new(a.Root));
         await host.SaveProfileAsync(a.Profile);
-        await host.SaveProfileAsync(b.Profile with { Port = 7778, BackupPath = a.Profile.BackupPath });
+        await host.SaveProfileAsync(b.Profile with { BackupPath = a.Profile.BackupPath });
         await host.SaveProfileAsync(a.Profile with { Name = "Updated name" });
         Assert.Equal(2, host.Settings.Servers.Count);
-        Assert.Equal(7779, ServerConnections.AvailablePort(host.Settings.Servers));
+        Assert.All(host.Settings.Servers, p => Assert.Equal(7777, p.Port));
     }
 
     [Fact]
-    public async Task ConflictingConfigurationIsRejectedBeforeAnyGameWriteOrBackup()
+    public async Task OverlappingSaveFolderIsRejectedBeforeAnyGameWriteOrBackup()
     {
         using var a = new Fixture(); using var b = new Fixture();
-        var host = new ManagerHost(new(a.Root)); await host.SaveProfileAsync(a.Profile); await host.SaveProfileAsync(b.Profile with { Port = 7778 });
-        var original = File.ReadAllBytes(a.Profile.ConfigPath);
-        var values = GameConfiguration.Read(a.Profile.ConfigPath); values["Port"] = "7778";
+        var store = new JsonStore(a.Root);
+        store.Write("settings.json", new ManagerSettings { Servers = [a.Profile with { DataPath = b.Profile.SavedPath }, b.Profile] });
+        var host = new ManagerHost(store);
+        var original = File.ReadAllBytes(b.Profile.ConfigPath);
+        var values = GameConfiguration.Read(b.Profile.ConfigPath); values["Port"] = "7778";
         await Assert.ThrowsAsync<ArgumentException>(() => host.ExecuteAsync(a.Profile.Id, new("configuration", Values: values)));
-        Assert.Equal(original, File.ReadAllBytes(a.Profile.ConfigPath)); Assert.Empty(new BackupEngine().List(a.Profile));
+        Assert.Equal(original, File.ReadAllBytes(b.Profile.ConfigPath)); Assert.Empty(new BackupEngine().List(a.Profile));
     }
 
     [Fact]

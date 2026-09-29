@@ -15,15 +15,7 @@ public static class ServerConnections
                 throw new ArgumentException($"The save-data folder overlaps '{other.Name}'. Each server needs its own save-data folder.");
             if (Overlap(profile.BackupPath, other.InstallPath) || Overlap(profile.BackupPath, other.SavedPath) || Overlap(other.BackupPath, profile.InstallPath) || Overlap(other.BackupPath, profile.SavedPath))
                 throw new ArgumentException($"A backup folder overlaps game files belonging to '{other.Name}'. Store backups separately from all servers.");
-            if (profile.Port == other.Port)
-                throw new ArgumentException($"Port {profile.Port} is already assigned to '{other.Name}'. Each server needs a distinct game port.");
         }
-    }
-
-    public static int AvailablePort(IEnumerable<ServerProfile> connections)
-    {
-        var used = connections.Select(p => p.Port).ToHashSet();
-        return Enumerable.Range(7777, 65535 - 7777 + 1).First(port => !used.Contains(port));
     }
 }
 

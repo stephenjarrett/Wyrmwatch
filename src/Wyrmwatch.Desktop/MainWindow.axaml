@@ -30,9 +30,12 @@
     <Grid Grid.Column="1" RowDefinitions="Auto,*,Auto" Margin="34,28,34,18">
       <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,26">
         <StackPanel Spacing="6"><TextBlock Text="{Binding PageTitle}" Classes="heading" /><TextBlock Text="{Binding PageSubtitle}" Classes="muted" /></StackPanel>
-        <ComboBox Grid.Column="1" Width="230" ItemsSource="{Binding Profiles}" SelectedItem="{Binding SelectedProfile}" VerticalAlignment="Center" PlaceholderText="{DynamicResource Ui.5b428863326e}" SelectionChanged="ServerSelected">
+        <StackPanel Grid.Column="1" Spacing="6" VerticalAlignment="Center">
+          <TextBlock Text="{DynamicResource Ui.6548864dfa03}" Classes="muted" FontSize="11" />
+        <ComboBox Width="230" ItemsSource="{Binding Profiles}" SelectedItem="{Binding SelectedProfile}" PlaceholderText="{DynamicResource Ui.5b428863326e}" SelectionChanged="ServerSelected">
           <ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding Name}" /></DataTemplate></ComboBox.ItemTemplate>
         </ComboBox>
+        </StackPanel>
       </Grid>
       <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled">
         <Grid>

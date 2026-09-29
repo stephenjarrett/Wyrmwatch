@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Sockets;
 using Dragonwilds.Core;
 using Dragonwilds.Windows;
+using Wyrmwatch.Agent;
 
 namespace Dragonwilds.Core.Tests;
 
@@ -24,29 +25,32 @@ public class RuntimeSmokeTest
     }
 
     [Fact]
-    public async Task TwoRunningServersKeepProcessesBackupsAndRestoresIsolatedAfterManagerRestart()
+    public async Task SavedServersSwitchOnlyAfterShutdownAndReuseTheSamePort()
     {
         await using var first = new DisposableServer(); await using var second = new DisposableServer(first.Profile.Port);
         ServerConnections.Validate(first.Profile, [second.Profile]);
-        var runtime = Runtime(first.Root);
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(35));
-        await runtime.StartAsync(first.Profile, timeout.Token); await runtime.StartAsync(second.Profile, timeout.Token);
-        var a = await runtime.InspectAsync(first.Profile); var b = await runtime.InspectAsync(second.Profile);
-        Assert.True(a.Running && b.Running);
-        Assert.Empty(a.Processes.Select(p => p.Id).Intersect(b.Processes.Select(p => p.Id)));
-        var secondIdentity = Assert.Single(b.Processes);
+        Assert.Equal(first.Profile.Port, second.Profile.Port);
+        var store = new JsonStore(first.Root); var raw = Runtime(first.Root);
+        var host = new ManagerHost(store, raw, new UnusedSteam());
+        await host.SaveProfileAsync(first.Profile); await host.SaveProfileAsync(second.Profile);
+        await host.ExecuteAsync(first.Profile.Id, new("start"));
+        var a = await raw.InspectAsync(first.Profile); Assert.True(a.Running);
+        var firstIdentity = Assert.Single(a.Processes);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => host.ExecuteAsync(second.Profile.Id, new("start")));
+        Assert.Equal(firstIdentity.Id, Assert.Single((await raw.InspectAsync(first.Profile)).Processes).Id);
+        Assert.False((await raw.InspectAsync(second.Profile)).Running);
         var untouched = File.ReadAllBytes(second.World);
         var engine = new BackupEngine(); var recovery = await engine.CreateAsync(first.Profile, "Test", true);
         File.WriteAllText(first.World, "new progress");
-        runtime = Runtime(first.Root);
-        await runtime.StopAsync(first.Profile, timeout.Token);
-        await engine.RestoreAsync(first.Profile, recovery.Path, async () => !(await runtime.InspectAsync(first.Profile)).Running);
+        raw = Runtime(first.Root); host = new ManagerHost(store, raw, new UnusedSteam());
+        await Assert.ThrowsAsync<InvalidOperationException>(() => host.ExecuteAsync(second.Profile.Id, new("start")));
+        await host.ExecuteAsync(first.Profile.Id, new("stop"));
+        await host.ExecuteAsync(first.Profile.Id, new("restore", Path.GetFileName(recovery.Path), Confirmation: first.Profile.Name));
         Assert.Equal("precious world data", File.ReadAllText(first.World));
-        b = await runtime.InspectAsync(second.Profile);
-        Assert.True(b.Running); Assert.Equal(secondIdentity.Id, Assert.Single(b.Processes).Id);
         Assert.Equal(untouched, File.ReadAllBytes(second.World)); Assert.Empty(engine.List(second.Profile));
-        Assert.False(File.Exists(Path.Combine(second.Profile.InstallPath, "shutdown.requested")));
-        await runtime.StopAsync(second.Profile, timeout.Token);
+        await host.ExecuteAsync(second.Profile.Id, new("start"));
+        Assert.True((await raw.InspectAsync(second.Profile)).Running); Assert.False((await raw.InspectAsync(first.Profile)).Running);
+        await host.ExecuteAsync(second.Profile.Id, new("stop"));
         Assert.Equal("graceful", File.ReadAllText(Path.Combine(second.Profile.InstallPath, "shutdown.requested")));
     }
 
@@ -56,10 +60,10 @@ public class RuntimeSmokeTest
         public string Root => fixture.Root;
         public ServerProfile Profile { get; }
         public string World => Path.Combine(Profile.SavedPath, "SaveGames", "world.sav");
-        public DisposableServer(int excludedPort = 0)
+        public DisposableServer(int sharedPort = 0)
         {
-            int port;
-            do { using var reservation = new UdpClient(new IPEndPoint(IPAddress.Loopback, 0)); port = ((IPEndPoint)reservation.Client.LocalEndPoint!).Port; } while (port == excludedPort);
+            using var reservation = new UdpClient(new IPEndPoint(IPAddress.Loopback, 0));
+            var port = sharedPort == 0 ? ((IPEndPoint)reservation.Client.LocalEndPoint!).Port : sharedPort;
             Profile = fixture.Profile with { Port = port, LauncherPath = Path.Combine(fixture.Profile.InstallPath, OperatingSystem.IsWindows() ? "RSDragonwildsServer.exe" : "RSDragonwildsServer") };
             foreach (var file in Directory.GetFiles(Path.Combine(AppContext.BaseDirectory, "fixture"))) File.Copy(file, Path.Combine(Profile.InstallPath, Path.GetFileName(file)));
             if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(Profile.Launcher, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);

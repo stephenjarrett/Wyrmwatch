@@ -40,13 +40,13 @@ public class OperationTests
     public async Task LegacyConflictingProfilesCannotRunScheduledBackups()
     {
         using var a = new Fixture(); using var b = new Fixture(); var store = new JsonStore(a.Root);
-        var profiles = new[] { a.Profile with { AutoBackup = true }, b.Profile with { AutoBackup = true } };
+        var profiles = new[] { a.Profile with { AutoBackup = true }, b.Profile with { AutoBackup = true, DataPath = a.Profile.SavedPath } };
         store.Write("settings.json", new ManagerSettings { Servers = profiles.ToList() });
         store.Write("schedules.json", profiles.ToDictionary(p => p.Id, _ => new ScheduleState(NextBackup: DateTimeOffset.UtcNow.AddMinutes(-1))));
         var host = new ManagerHost(store, new OfflineRuntime(), new UnusedSteam()); using var cancel = new CancellationTokenSource();
         var monitor = host.MonitorAsync(() => { }, cancel.Token);
         cancel.Cancel(); await monitor;
-        Assert.All(host.Status().Servers, s => { Assert.False(s.State.Accessible); Assert.Contains("Port", s.State.ActivityReason); });
+        Assert.All(host.Status().Servers, s => { Assert.False(s.State.Accessible); Assert.Contains("save-data", s.State.ActivityReason); });
         Assert.All(profiles, p => Assert.Empty(new BackupEngine().List(p)));
     }
 }

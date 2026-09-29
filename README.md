@@ -15,7 +15,7 @@ Portable builds include `Wyrmwatch-source.zip` containing the project source and
 ## Features
 
 - Modern dashboard, CPU/memory graphs, free disk space, dark/light/system themes.
-- Import existing installations in place with a save-folder review; multiple saved server connections with port and folder conflict checks.
+- Import existing installations in place with a save-folder review; choose from saved server connections and run one at a time.
 - Install new servers into empty folders with SteamCMD.
 - Start, graceful stop, restart, and per-installation process tracking.
 - Compare installed and available Steam builds before updating.
@@ -41,7 +41,9 @@ Automatic game updates, scheduled backups, background operation, manager update 
 
 A server started elsewhere can be monitored and backed up. Wyrmwatch will not send it shutdown signals without a recorded owned process identity. Stop it using its existing controls at a convenient time, then start it through Wyrmwatch for managed shutdown. No forced-stop fallback is enabled.
 
-For multiple servers on one host, use separate installations, separate save-data folders, and distinct game ports. Connections with duplicate ports or overlapping game/save paths are rejected; backups must stay outside every connected server's game/save folders. A common external backup destination is allowed because archives are scoped to their server. New installations select the next game port not assigned to another connection. Existing conflicting connections display a warning and their scheduled maintenance is deferred until corrected. These checks compare saved connections; they do not reserve ports or inspect every other application's listeners. Maintenance actions run one at a time across the manager.
+Keep as many saved server connections as needed, and choose one from the list. Selecting an entry changes the view; it does not start it or stop the current server. Stop the running server before starting another. Desktop actions, remote actions, and maintenance restarts all check the other saved connections immediately before launching; unknown process status blocks a start. Disconnecting a running connection does not bypass this check. These safeguards apply to connections known to this workspace, including disconnected entries; Wyrmwatch does not control other manager workspaces or unconfigured installations.
+
+Saved servers may reuse the same game port because Wyrmwatch runs one at a time. Keep separate installation and save-data folders for each connection. Overlapping game/save paths remain blocked, and backups must stay outside every connected server's game/save folders. A common external backup destination is allowed because archives are scoped to their server. Maintenance actions run one at a time across the manager, and updating a stopped server leaves it stopped.
 
 Config edits require the server to be stopped, preserve unrelated sections/admin lists, and retain the previous file. Read the [official Dragonwilds server guide](https://runescapedragonwilds.help.jagex.com/hc/en-gb/articles/45365343055249-Dedicated-Servers-How-to-Guide) for owner IDs, networking, world saves, and game-side administration. The game chooses the newest save; restore moves the old active save folder into a retained recovery directory so newer saves do not override the selected recovery point.
 

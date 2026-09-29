@@ -28,7 +28,12 @@ public sealed class ManagerHost
     {
         this.store = store;
         var helper = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "Dragonwilds.Signal.exe"));
-        this.runtime = runtime ?? (OperatingSystem.IsWindows() ? new WindowsRuntime(store, helper) : new LinuxRuntime(store));
+        this.runtime = new SingleServerRuntime(runtime ?? (OperatingSystem.IsWindows() ? new WindowsRuntime(store, helper) : new LinuxRuntime(store)), () =>
+        {
+            var settings = Settings;
+            // A disconnected running server must still prevent a second launch.
+            return settings.Servers.Concat(settings.DisconnectedServers).DistinctBy(p => p.Id).ToArray();
+        });
         this.steam = steam ?? new SteamClient(Path.Combine(store.DirectoryPath, "tools"));
         maintenance = new(this.runtime, this.steam, backups, store);
         maintenance.Log += WriteLog;
@@ -118,16 +123,24 @@ public sealed class ManagerHost
     public async Task<ServerProfile> SaveProfileAsync(ServerProfile profile)
     {
         profile.Validate();
-        await ChangeSettingsAsync(settings =>
+        if (!await operations.WaitAsync(0)) throw new InvalidOperationException("Wait for the current operation before editing connections or preferences.");
+        try
         {
+            var settings = Settings;
             var previous = settings.DisconnectedServers.FirstOrDefault(p => SafePaths.Same(p.InstallPath, profile.InstallPath));
             if (previous is not null && settings.Servers.All(p => p.Id != profile.Id)) profile = profile with { Id = previous.Id };
             ServerConnections.Validate(profile, settings.Servers);
             var existing = settings.Servers.SingleOrDefault(p => p.Id == profile.Id);
+            if (existing is not null && (!SafePaths.Same(existing.InstallPath, profile.InstallPath) || !SafePaths.Same(existing.Launcher, profile.Launcher)))
+            {
+                var state = await runtime.InspectAsync(existing);
+                if (!state.Accessible || state.Running) throw new IOException("Stop this server before changing its installation or launcher.");
+            }
             var profiles = settings.Servers.Where(p => p.Id != profile.Id).ToList(); profiles.Add(profile);
             if (existing is null || existing.AutoUpdate != profile.AutoUpdate || existing.AutoBackup != profile.AutoBackup || existing.UpdateMinutes != profile.UpdateMinutes || existing.BackupHours != profile.BackupHours) maintenance.ResetSchedule(profile.Id);
-            return settings with { Servers = profiles, DisconnectedServers = settings.DisconnectedServers.Where(p => p.Id != profile.Id).ToList(), SelectedServerId = profile.Id };
-        });
+            store.Write("settings.json", settings with { Servers = profiles, DisconnectedServers = settings.DisconnectedServers.Where(p => p.Id != profile.Id).ToList(), SelectedServerId = profile.Id });
+        }
+        finally { operations.Release(); }
         return profile;
     }
     public Task RemoveProfileAsync(string id) => ChangeSettingsAsync(settings =>

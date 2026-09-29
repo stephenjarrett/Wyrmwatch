@@ -2,6 +2,7 @@
   "Id": "en",
   "Name": "English",
   "Strings": {
+    "Ui.6548864dfa03": "Saved servers · one running at a time",
     "Ui.5493ff8e9397": "WORKSPACE",
     "Ui.d4b1ea5708dd": "Overview",
     "Ui.e89b30aa1dc3": "Resources",
