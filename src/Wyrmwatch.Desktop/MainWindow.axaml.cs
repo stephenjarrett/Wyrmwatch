@@ -28,6 +28,7 @@ public partial class MainWindow : Window
     private TrayIcon? tray;
     private bool ready, exitRequested, changingProfile;
     private DateTime lastSchedule = DateTime.MinValue;
+    private Task? schedulerTask;
 
     public MainWindow()
     {
@@ -68,7 +69,12 @@ public partial class MainWindow : Window
         string[] descriptions = ["A quieter way to keep your world running.", "Live CPU, memory, and storage for your selected server.", "Thoughtful maintenance, around your players.", "Your saves and settings, backed up and verified.", "Updates, backups, and the details in between.", "Your appearance, connections, and game configuration.", "Setup help and a closer look under the hood."];
         model.PageTitle = titles[index]; model.PageSubtitle = descriptions[index];
     }
-    private void ServerSelected(object? sender, SelectionChangedEventArgs e) { if (ready && !changingProfile) { LoadProfile(); settings = settings with { SelectedServerId = model.SelectedProfile?.Id }; SaveSettings(); } }
+    private void ServerSelected(object? sender, SelectionChangedEventArgs e)
+    {
+        if (!ready || changingProfile) return;
+        try { LoadProfile(); settings = settings with { SelectedServerId = model.SelectedProfile?.Id }; SaveSettings(); }
+        catch (Exception error) { model.Notice = error.Message; }
+    }
     private void LoadProfile()
     {
         var p = model.SelectedProfile; if (p is null) return;
@@ -82,7 +88,8 @@ public partial class MainWindow : Window
         }
         model.Status = "Checking…"; model.Players = model.Cpu = model.Memory = model.Uptime = "—";
         CpuChart.Clear(); MemoryChart.Clear();
-        model.BuildSummary = "Installed build: " + (Program.Demo ? "20681432 · Demo" : steam?.InstalledBuild(p) ?? "Unknown");
+        try { model.BuildSummary = "Installed build: " + (Program.Demo ? "20681432 · Demo" : steam?.InstalledBuild(p) ?? "Unknown"); }
+        catch (IOException) { model.BuildSummary = "Installed build: Unavailable"; }
         UpdateScheduleLabels(); _ = RefreshBackupsAsync();
     }
     private async Task PollLoopAsync()
@@ -111,16 +118,22 @@ public partial class MainWindow : Window
                         model.DiskFree = DiskSpace(p.InstallPath);
                     }
                 }
-                if (!Program.Demo && DateTime.UtcNow - lastSchedule > TimeSpan.FromSeconds(5))
+                if (!Program.Demo && DateTime.UtcNow - lastSchedule > TimeSpan.FromSeconds(5) && (schedulerTask is null || schedulerTask.IsCompleted))
                 {
                     lastSchedule = DateTime.UtcNow;
                     // Capture immutable profiles on the UI thread, and keep the scheduler off it.
-                    var profiles = model.Profiles.ToArray(); await Task.Run(() => service!.TickAsync(profiles, closing.Token)); UpdateScheduleLabels();
+                    var profiles = model.Profiles.ToArray(); schedulerTask = RunScheduledAsync(profiles);
                 }
             }
             catch (OperationCanceledException) { break; }
             catch (Exception e) { model.Notice = e.Message; }
         } while (!closing.IsCancellationRequested && await timer.WaitForNextTickAsync(closing.Token));
+    }
+    private async Task RunScheduledAsync(ServerProfile[] profiles)
+    {
+        try { await Task.Run(() => service!.TickAsync(profiles, closing.Token)); UpdateScheduleLabels(); }
+        catch (OperationCanceledException) { }
+        catch (Exception error) { model.Notice = "Automation: " + error.Message; }
     }
     private static string DiskSpace(string path) { try { return $"{new DriveInfo(Path.GetPathRoot(path)!).AvailableFreeSpace / 1073741824d:0.0} GB"; } catch { return "Unavailable"; } }
     private void UpdateScheduleLabels()

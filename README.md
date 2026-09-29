@@ -2,7 +2,7 @@
 
 A focused desktop manager for RuneScape: Dragonwilds dedicated servers. Built in C# on .NET 10 and Avalonia, with Windows and Linux interfaces from one codebase.
 
-This is a standalone implementation, not a fork. It is an unofficial community tool and is not affiliated with Jagex.
+An unofficial community tool, not affiliated with Jagex.
 
 ## MVP
 
@@ -44,7 +44,7 @@ Command-line options:
 --minimized           Start minimized
 ```
 
-Default manager state is stored in the platform's local application-data directory under `Wyrmwatch`. This is separate from the old Python manager. Neither its settings nor its running processes are migrated automatically.
+Manager preferences and operation history are stored in the platform's local application-data directory under `Wyrmwatch`. Server connections are configured explicitly.
 
 ## Maintenance and recovery limits
 
