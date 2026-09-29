@@ -33,7 +33,11 @@ public sealed class JsonStore(string directory)
     {
         var path = Path.Combine(DirectoryPath, name);
         if (!File.Exists(path)) return fallback();
-        try { return JsonSerializer.Deserialize<T>(File.ReadAllText(path), Options) ?? throw new JsonException("Empty document"); }
+        try
+        {
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            return JsonSerializer.Deserialize<T>(stream, Options) ?? throw new JsonException("Empty document");
+        }
         catch (JsonException e) { throw new IOException($"Cannot read {name}. The original file has been preserved.", e); }
     }
     public void Write<T>(string name, T value)

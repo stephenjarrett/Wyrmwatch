@@ -134,6 +134,7 @@ public sealed class AgentClient(string workspace) : IDisposable
         return await response.Content.ReadFromJsonAsync<ServerProfile>() ?? throw new IOException("The manager returned an empty connection.");
     }
     public Task SavePreferencesAsync(ManagerSettings settings) => SendAsync("admin/preferences", HttpMethod.Put, settings);
+    public Task<ServerProfile> ImportProfileAsync(ServerProfile profile) => PostAsync<ServerProfile>("admin/import", profile);
     public async Task StopAgentAsync()
     {
         await EnsureStartedAsync();

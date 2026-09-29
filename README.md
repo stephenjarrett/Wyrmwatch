@@ -15,7 +15,7 @@ Portable builds include `Wyrmwatch-source.zip` containing the project source and
 ## Features
 
 - Modern dashboard, CPU/memory graphs, free disk space, dark/light/system themes.
-- Connect existing installations in place; multiple saved server connections.
+- Import existing installations in place with a save-folder review; multiple saved server connections with port and folder conflict checks.
 - Install new servers into empty folders with SteamCMD.
 - Start, graceful stop, restart, and per-installation process tracking.
 - Compare installed and available Steam builds before updating.
@@ -34,12 +34,14 @@ Automatic game updates, scheduled backups, background operation, manager update 
 
 ## Use an existing server
 
-1. Choose **Connect existing server** and select its launcher (`RSDragonwildsServer.exe` on Windows, the server launch script on Linux).
-2. In Settings, check the **save-data folder**. The default is `RSDragonwilds/Saved` inside the installation. If this server uses your user-profile data, explicitly select that server's real Saved folder instead. Wyrmwatch does not guess or combine unrelated player saves.
-3. Save the connection, then create a manual backup. Saving connection preferences does not rewrite game configuration.
+1. Choose **Import existing server** (or **Import another server…** in Settings) and select its launcher (`RSDragonwildsServer.exe` on Windows, the server launch script on Linux).
+2. Review the **save-data folder** and backup destination. The default is `RSDragonwilds/Saved` inside the installation. If this server uses your user-profile data, explicitly select that server's real Saved folder instead. Wyrmwatch reads the existing server name and port from that folder's configuration; it does not guess or combine unrelated player saves.
+3. Confirm the reviewed Saved folder and choose **Import server**, then create a manual backup. Importing only saves a connection: it does not move files, rewrite game configuration, install, launch, or stop a server. Automatic updates and backups are disabled on import, including reconnection.
 4. Enable schedules when ready. Run only one server-management application with automatic maintenance enabled for the installation.
 
 A server started elsewhere can be monitored and backed up. Wyrmwatch will not send it shutdown signals without a recorded owned process identity. Stop it using its existing controls at a convenient time, then start it through Wyrmwatch for managed shutdown. No forced-stop fallback is enabled.
+
+For multiple servers on one host, use separate installations, separate save-data folders, and distinct game ports. Connections with duplicate ports or overlapping game/save paths are rejected; backups must stay outside every connected server's game/save folders. A common external backup destination is allowed because archives are scoped to their server. New installations select the next game port not assigned to another connection. Existing conflicting connections display a warning and their scheduled maintenance is deferred until corrected. These checks compare saved connections; they do not reserve ports or inspect every other application's listeners. Maintenance actions run one at a time across the manager.
 
 Config edits require the server to be stopped, preserve unrelated sections/admin lists, and retain the previous file. Read the [official Dragonwilds server guide](https://runescapedragonwilds.help.jagex.com/hc/en-gb/articles/45365343055249-Dedicated-Servers-How-to-Guide) for owner IDs, networking, world saves, and game-side administration. The game chooses the newest save; restore moves the old active save folder into a retained recovery directory so newer saves do not override the selected recovery point.
 

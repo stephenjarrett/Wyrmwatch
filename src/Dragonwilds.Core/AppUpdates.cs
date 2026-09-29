@@ -9,7 +9,7 @@ namespace Dragonwilds.Core;
 public sealed record AppRelease(string Version, string Notes, string Page, string Download, string Digest, long Bytes);
 public sealed record PreparedUpdate(string Version, string Directory, string Executable);
 
-public sealed class AppUpdates
+public sealed class AppUpdates(Func<HttpClient>? createClient = null)
 {
     public const string Repository = "stephenjarrett/Wyrmwatch";
     public const long DownloadLimit = 600L * 1024 * 1024;
@@ -38,7 +38,7 @@ public sealed class AppUpdates
     }
     public async Task<AppRelease?> CheckAsync(Version current, string runtime, CancellationToken token = default)
     {
-        using var client = Client();
+        using var client = createClient?.Invoke() ?? Client();
         using var response = await client.GetAsync($"https://api.github.com/repos/{Repository}/releases/latest", token);
         if (response.StatusCode == HttpStatusCode.NotFound) return null;
         response.EnsureSuccessStatusCode();
@@ -49,7 +49,7 @@ public sealed class AppUpdates
         SafePaths.NoLinks(destination); Directory.CreateDirectory(destination);
         var staging = Path.Combine(destination, $"{release.Version}-{Guid.NewGuid():N}"); Directory.CreateDirectory(staging);
         var package = Path.Combine(staging, runtime == "win-x64" ? "download.zip" : "download.tar.gz");
-        using var client = Client();
+        using var client = createClient?.Invoke() ?? Client();
         var uri = new Uri(release.Download);
         HttpResponseMessage? response = null;
         try

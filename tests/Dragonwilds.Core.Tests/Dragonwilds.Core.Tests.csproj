@@ -7,7 +7,7 @@
     <ProjectReference Include="../../src/Dragonwilds.Core/Dragonwilds.Core.csproj" />
     <ProjectReference Include="../../src/Dragonwilds.Windows/Dragonwilds.Windows.csproj" />
     <ProjectReference Include="../../src/Dragonwilds.Signal/Dragonwilds.Signal.csproj" ReferenceOutputAssembly="false" />
-    <ProjectReference Include="../../src/Wyrmwatch.Agent/Wyrmwatch.Agent.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="../../src/Wyrmwatch.Agent/Wyrmwatch.Agent.csproj" />
     <ProjectReference Include="../FixtureServer/FixtureServer.csproj" ReferenceOutputAssembly="false" />
     <Using Include="Xunit" />
   </ItemGroup>

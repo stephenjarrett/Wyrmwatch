@@ -10,7 +10,7 @@ public sealed class ManagerHost
     public const string Version = "0.2.0";
     private readonly JsonStore store;
     private readonly IServerRuntime runtime;
-    private readonly SteamClient steam;
+    private readonly ISteamClient steam;
     private readonly BackupEngine backups = new();
     private readonly MaintenanceService maintenance;
     private readonly SemaphoreSlim operations = new(1, 1);
@@ -24,13 +24,13 @@ public sealed class ManagerHost
     public string? RemoteAddress { get; set; }
     public bool PersistentHost { get; set; }
     public bool Busy => operations.CurrentCount == 0 || maintenance.Busy;
-    public ManagerHost(JsonStore store)
+    public ManagerHost(JsonStore store, IServerRuntime? runtime = null, ISteamClient? steam = null)
     {
         this.store = store;
         var helper = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "Dragonwilds.Signal.exe"));
-        runtime = OperatingSystem.IsWindows() ? new WindowsRuntime(store, helper) : new LinuxRuntime(store);
-        steam = new SteamClient(Path.Combine(store.DirectoryPath, "tools"));
-        maintenance = new(runtime, steam, backups, store);
+        this.runtime = runtime ?? (OperatingSystem.IsWindows() ? new WindowsRuntime(store, helper) : new LinuxRuntime(store));
+        this.steam = steam ?? new SteamClient(Path.Combine(store.DirectoryPath, "tools"));
+        maintenance = new(this.runtime, this.steam, backups, store);
         maintenance.Log += WriteLog;
     }
     public ManagerSettings Settings => store.Read("settings.json", () => new ManagerSettings());
@@ -69,7 +69,13 @@ public sealed class ManagerHost
         if (!await operations.WaitAsync(0)) throw new InvalidOperationException("Another operation is still running.");
         try
         {
-            var p = Profile(id); p.Validate();
+            var p = Profile(id);
+            if (request.Action == "configuration" && request.Values?.TryGetValue("Port", out var portText) == true)
+            {
+                if (!int.TryParse(portText, out var port)) throw new ArgumentException("Invalid port.");
+                p = p with { Port = port };
+            }
+            ServerConnections.Validate(p, Settings.Servers);
             if (request.Action == "restore" && request.Confirmation != p.Name) throw new ArgumentException("Confirm the server name before restoring.");
             return request.Action switch
             {
@@ -80,13 +86,27 @@ public sealed class ManagerHost
                 "check" => await maintenance.CheckAsync(p),
                 "update" => await maintenance.UpdateAsync(p),
                 "install" => await maintenance.InstallAsync(p),
-                "configuration" => await maintenance.SaveConfigurationAsync(p, request.Values ?? throw new ArgumentException("Missing configuration values.")),
+                "configuration" => await SaveConfigurationAsync(p, request.Values ?? throw new ArgumentException("Missing configuration values.")),
                 "restore" => await maintenance.RestoreAsync(p, Archive(p, request.Archive)),
                 "verify" => await VerifyAsync(p, request.Archive),
                 _ => throw new ArgumentException("Unknown operation.")
             };
         }
         finally { operations.Release(); }
+    }
+    private async Task<string> SaveConfigurationAsync(ServerProfile profile, IReadOnlyDictionary<string, string> values)
+    {
+        var result = await maintenance.SaveConfigurationAsync(profile, values);
+        var settings = Settings;
+        store.Write("settings.json", settings with { Servers = settings.Servers.Select(p => p.Id == profile.Id ? profile : p).ToList() });
+        return result;
+    }
+
+    public Task<ServerProfile> ImportProfileAsync(ServerProfile profile)
+    {
+        var inspected = ExistingServerImport.Inspect(profile.Launcher, profile.SavedPath, profile.BackupPath);
+        if (inspected.Port != profile.Port) throw new ArgumentException("The server port changed during import. Review the connection again.");
+        return SaveProfileAsync(profile with { AutoBackup = false, AutoUpdate = false });
     }
     private string Archive(ServerProfile profile, string? name) => backups.List(profile).SingleOrDefault(b => Path.GetFileName(b.Path) == name)?.Path ?? throw new ArgumentException("Choose a backup belonging to this server.");
     private async Task<string> VerifyAsync(ServerProfile profile, string? name)
@@ -102,7 +122,7 @@ public sealed class ManagerHost
         {
             var previous = settings.DisconnectedServers.FirstOrDefault(p => SafePaths.Same(p.InstallPath, profile.InstallPath));
             if (previous is not null && settings.Servers.All(p => p.Id != profile.Id)) profile = profile with { Id = previous.Id };
-            if (settings.Servers.Any(p => p.Id != profile.Id && SafePaths.Same(p.InstallPath, profile.InstallPath))) throw new ArgumentException("This installation is already connected.");
+            ServerConnections.Validate(profile, settings.Servers);
             var existing = settings.Servers.SingleOrDefault(p => p.Id == profile.Id);
             var profiles = settings.Servers.Where(p => p.Id != profile.Id).ToList(); profiles.Add(profile);
             if (existing is null || existing.AutoUpdate != profile.AutoUpdate || existing.AutoBackup != profile.AutoBackup || existing.UpdateMinutes != profile.UpdateMinutes || existing.BackupHours != profile.BackupHours) maintenance.ResetSchedule(profile.Id);
@@ -150,7 +170,7 @@ public sealed class ManagerHost
                     var settings = Settings;
                     foreach (var profile in settings.Servers)
                     {
-                        try { profile.Validate(); snapshots[profile.Id] = await maintenance.ObserveAsync(profile, token); }
+                        try { ServerConnections.Validate(profile, settings.Servers); snapshots[profile.Id] = await maintenance.ObserveAsync(profile, token); }
                         catch (Exception error) when (error is not OperationCanceledException) { snapshots[profile.Id] = ServerSnapshot.Offline with { Accessible = false, Players = null, ActivityReason = error.Message }; }
                     }
                     if (!PersistentHost && !settings.BackgroundMode && parent is { } owner && !ParentAlive(owner) && TryPrepareShutdown()) { stop(); break; }
@@ -165,7 +185,17 @@ public sealed class ManagerHost
     private async Task ScheduleAsync(CancellationToken token)
     {
         if (!await operations.WaitAsync(0, token)) return;
-        try { await maintenance.TickAsync(Settings.Servers, token); }
+        try
+        {
+            var profiles = Settings.Servers;
+            var safe = profiles.Where(p =>
+            {
+                try { ServerConnections.Validate(p, profiles); return true; }
+                catch (ArgumentException) { return false; }
+                catch (IOException) { return false; }
+            }).ToArray();
+            await maintenance.TickAsync(safe, token);
+        }
         catch (Exception error) when (error is not OperationCanceledException) { WriteLog("Automation: " + error.Message); }
         finally { operations.Release(); }
     }

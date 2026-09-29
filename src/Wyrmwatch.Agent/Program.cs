@@ -114,6 +114,7 @@ WebApplication CreateHost(bool allowRemote)
     app.MapGet("/admin/servers/{id}/log", (string id) => new ActionResult(LogTail.Read(manager.Profile(id).LogPath)));
     app.MapPut("/admin/preferences", async (ManagerSettings settings) => { await manager.SavePreferencesAsync(settings); return Results.Ok(); });
     app.MapPut("/admin/profiles", async (ServerProfile profile) => Results.Ok(await manager.SaveProfileAsync(profile)));
+    app.MapPost("/admin/import", async (ServerProfile profile) => Results.Ok(await manager.ImportProfileAsync(profile)));
     app.MapDelete("/admin/profiles/{id}", async (string id) => { await manager.RemoveProfileAsync(id); return Results.Ok(); });
     app.MapPost("/admin/attach", (AgentParent identity) => { manager.Attach(identity); return Results.Ok(); });
     app.MapGet("/admin/remote", () => new RemoteInfo(remote, manager.RemoteAddress, certificate?.GetCertHashString(HashAlgorithmName.SHA256), remoteWarning));

@@ -25,7 +25,7 @@ public sealed class MaintenanceService(IServerRuntime runtime, ISteamClient stea
         {
             if (state.Accessible && state.Running && state.Players == 0)
             {
-                var key = string.Join(';', state.Processes.Select(p => $"{p.Id}:{p.StartUtc.Ticks}"));
+                var key = string.Join(';', state.Processes.OrderBy(p => p.Id).Select(p => $"{p.Id}:{p.StartToken ?? p.StartUtc.Ticks.ToString()}"));
                 if (emptySince.TryGetValue(profile.Id, out var prior) && prior.ProcessKey == key && Now - prior.Last < TimeSpan.FromSeconds(15))
                     emptySince[profile.Id] = (prior.Since, Now, key);
                 else emptySince[profile.Id] = (Now, Now, key);

@@ -49,13 +49,27 @@ public class AgentSmokeTests
     [Fact]
     public async Task BackgroundModeSurvivesDesktopExitAndDisabledModeClosesWithoutChangingSaves()
     {
-        await using var agent = await AgentFixture.StartAsync();
+        await using var agent = await AgentFixture.StartAsync(prepare: fixture =>
+        {
+            fixture.First = fixture.First with { AutoBackup = true };
+            var store = new JsonStore(fixture.Root);
+            store.Write("settings.json", new ManagerSettings { Servers = [fixture.First, fixture.Second] });
+            store.Write("schedules.json", new Dictionary<string, ScheduleState> { [fixture.First.Id] = new(NextBackup: DateTimeOffset.UtcNow.AddSeconds(6)) });
+        });
         using var second = agent.StartProcess();
         Assert.True(second.WaitForExit(10000)); Assert.NotEqual(0, second.ExitCode);
         Assert.True((await agent.Admin.PutAsJsonAsync("admin/preferences", new ManagerSettings { BackgroundMode = true })).IsSuccessStatusCode);
         Assert.True((await agent.Admin.PostAsJsonAsync("admin/attach", new AgentParent(int.MaxValue, "missing"))).IsSuccessStatusCode);
-        await Task.Delay(3500);
+        var backups = new BackupEngine();
+        using (var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(25)))
+            while (backups.List(agent.First).Count == 0) await Task.Delay(200, deadline.Token);
         Assert.False(agent.Process.HasExited); Assert.True((await agent.Admin.GetFromJsonAsync<AgentStatus>("api/status"))!.Background);
+        var backup = Assert.Single(backups.List(agent.First)); await backups.VerifyAsync(backup.Path, agent.First);
+        var next = (await agent.Admin.GetFromJsonAsync<AgentStatus>("api/status"))!.Servers.Single(s => s.Id == agent.First.Id).Schedule.NextBackup;
+        await agent.RestartAsync(); await Task.Delay(3500);
+        Assert.Equal(next, (await agent.Admin.GetFromJsonAsync<AgentStatus>("api/status"))!.Servers.Single(s => s.Id == agent.First.Id).Schedule.NextBackup);
+        Assert.Single(backups.List(agent.First));
+        Assert.True((await agent.Admin.PostAsJsonAsync("admin/attach", new AgentParent(int.MaxValue, "missing"))).IsSuccessStatusCode);
         Assert.True((await agent.Admin.PutAsJsonAsync("admin/preferences", new ManagerSettings { BackgroundMode = false })).IsSuccessStatusCode);
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(12)); await agent.Process.WaitForExitAsync(timeout.Token);
         Assert.Equal(0, agent.Process.ExitCode);
@@ -63,10 +77,56 @@ public class AgentSmokeTests
         Assert.Equal(2, new JsonStore(agent.Root).Read("settings.json", () => new ManagerSettings()).Servers.Count);
     }
 
+    [Fact]
+    public async Task RemoteBackupAndRestoreWorkOnlyForAuthorizedServerAndConfirmedName()
+    {
+        await using var agent = await AgentFixture.StartAsync();
+        var otherWorld = Path.Combine(agent.Second.SavedPath, "SaveGames", "other.sav");
+        Directory.CreateDirectory(Path.GetDirectoryName(otherWorld)!); File.WriteAllText(otherWorld, "other world");
+        async Task<HttpClient> Grant(string role)
+        {
+            var response = await agent.Admin.PostAsJsonAsync("admin/access", new CreateAccessGrant(role, role, agent.First.Id)); response.EnsureSuccessStatusCode();
+            return agent.Client((await response.Content.ReadFromJsonAsync<IssuedAccessGrant>())!.Secret);
+        }
+        using var operatorClient = await Grant("Operator");
+        (await operatorClient.PostAsJsonAsync($"api/servers/{agent.First.Id}/actions", new ServerAction("backup"))).EnsureSuccessStatusCode();
+        var backup = Assert.Single(new BackupEngine().List(agent.First));
+        var restore = new ServerAction("restore", Path.GetFileName(backup.Path), Confirmation: agent.First.Name);
+        Assert.Equal(HttpStatusCode.Forbidden, (await operatorClient.PostAsJsonAsync($"api/servers/{agent.First.Id}/actions", restore)).StatusCode);
+        using var maintainer = await Grant("Maintainer");
+        Assert.Equal(HttpStatusCode.Forbidden, (await maintainer.PostAsJsonAsync($"api/servers/{agent.Second.Id}/actions", new ServerAction("backup"))).StatusCode);
+        File.WriteAllText(agent.Sentinel, "new progress");
+        Assert.Equal(HttpStatusCode.BadRequest, (await maintainer.PostAsJsonAsync($"api/servers/{agent.First.Id}/actions", restore with { Confirmation = "wrong name" })).StatusCode);
+        Assert.Equal("new progress", File.ReadAllText(agent.Sentinel));
+        (await maintainer.PostAsJsonAsync($"api/servers/{agent.First.Id}/actions", new ServerAction("verify", Path.GetFileName(backup.Path)))).EnsureSuccessStatusCode();
+        (await maintainer.PostAsJsonAsync($"api/servers/{agent.First.Id}/actions", restore)).EnsureSuccessStatusCode();
+        Assert.Equal("untouched", File.ReadAllText(agent.Sentinel)); Assert.Equal("other world", File.ReadAllText(otherWorld));
+        Assert.Empty(new BackupEngine().List(agent.Second));
+        var status = await maintainer.GetFromJsonAsync<AgentStatus>("api/status");
+        Assert.All(status!.Operations, o => Assert.Equal(agent.First.Id, o.ServerId));
+    }
+
+    [Fact]
+    public async Task ImportEndpointIsOwnerOnlyAndDisablesAutomationWithoutChangingFiles()
+    {
+        await using var agent = await AgentFixture.StartAsync();
+        using var f = new Fixture(); File.WriteAllText(f.Profile.Launcher, "fixture");
+        File.WriteAllText(f.Profile.ConfigPath, File.ReadAllText(f.Profile.ConfigPath).Replace("Port=7777", "Port=7780"));
+        var profile = ExistingServerImport.Inspect(f.Profile.Launcher, f.Profile.SavedPath, f.Profile.BackupPath);
+        var config = File.ReadAllBytes(profile.ConfigPath);
+        var grant = await (await agent.Admin.PostAsJsonAsync("admin/access", new CreateAccessGrant("Maintainer", "Maintainer", null))).Content.ReadFromJsonAsync<IssuedAccessGrant>();
+        using var remote = agent.Client(grant!.Secret);
+        Assert.Equal(HttpStatusCode.Forbidden, (await remote.PostAsJsonAsync("admin/import", profile)).StatusCode);
+        var result = await agent.Admin.PostAsJsonAsync("admin/import", profile with { AutoBackup = true, AutoUpdate = true }); result.EnsureSuccessStatusCode();
+        var imported = await result.Content.ReadFromJsonAsync<ServerProfile>();
+        Assert.False(imported!.AutoBackup); Assert.False(imported.AutoUpdate); Assert.Equal(7780, imported.Port);
+        Assert.Equal(config, File.ReadAllBytes(profile.ConfigPath)); Assert.Empty(new BackupEngine().List(profile));
+    }
+
     private sealed class AgentFixture : IAsyncDisposable
     {
         public string Root { get; } = Path.Combine(Path.GetTempPath(), "wyrmwatch-agent-test-" + Guid.NewGuid().ToString("N"));
-        public ServerProfile First { get; private set; } = null!;
+        public ServerProfile First { get; set; } = null!;
         public ServerProfile Second { get; private set; } = null!;
         public string Sentinel => Path.Combine(First.SavedPath, "SaveGames", "sentinel.sav");
         public Process Process { get; private set; } = null!;
@@ -86,14 +146,15 @@ public class AgentSmokeTests
             foreach (var argument in new[] { "--workspace", Root, "--parent", owner.Id.ToString(), ProcessLifetime.Token(owner) }) start.ArgumentList.Add(argument);
             return System.Diagnostics.Process.Start(start)!;
         }
-        public static async Task<AgentFixture> StartAsync(RemoteSettings? remote = null)
+        public static async Task<AgentFixture> StartAsync(RemoteSettings? remote = null, Action<AgentFixture>? prepare = null)
         {
             var fixture = new AgentFixture(); Directory.CreateDirectory(fixture.Root);
             fixture.First = new() { Id = "first", Name = "First", InstallPath = Path.Combine(fixture.Root, "first"), BackupPath = Path.Combine(fixture.Root, "backups-first") };
-            fixture.Second = new() { Id = "second", Name = "Second", InstallPath = Path.Combine(fixture.Root, "second"), BackupPath = Path.Combine(fixture.Root, "backups-second") };
+            fixture.Second = new() { Id = "second", Name = "Second", InstallPath = Path.Combine(fixture.Root, "second"), BackupPath = Path.Combine(fixture.Root, "backups-second"), Port = 7778 };
             Directory.CreateDirectory(Path.GetDirectoryName(fixture.Sentinel)!); File.WriteAllText(fixture.Sentinel, "untouched");
             new JsonStore(fixture.Root).Write("settings.json", new ManagerSettings { Servers = [fixture.First, fixture.Second] });
             if (remote is not null) new JsonStore(fixture.Root).Write("remote.json", remote);
+            prepare?.Invoke(fixture);
             fixture.Process = fixture.StartProcess();
             try
             {
@@ -110,12 +171,29 @@ public class AgentSmokeTests
             }
             catch { await fixture.DisposeAsync(); throw; }
         }
+        public async Task RestartAsync()
+        {
+            (await Admin.PostAsync("admin/shutdown", null)).EnsureSuccessStatusCode();
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15)); await Process.WaitForExitAsync(timeout.Token);
+            Process.Dispose(); Admin.Dispose(); Process = StartProcess();
+            while (true)
+            {
+                if (Process.HasExited) throw new IOException(await Process.StandardError.ReadToEndAsync());
+                var endpoint = new JsonStore(Root).Read<AgentEndpoint?>("agent.json", () => null);
+                if (endpoint?.ProcessId == Process.Id)
+                {
+                    Admin = new HttpClient { BaseAddress = new Uri(endpoint.Address), Timeout = TimeSpan.FromSeconds(15) };
+                    Admin.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", endpoint.Secret); return;
+                }
+                await Task.Delay(100, timeout.Token);
+            }
+        }
         public async ValueTask DisposeAsync()
         {
             if (Process is not null && !Process.HasExited)
             {
                 if (Admin is not null)
-                    for (var i = 0; i < 20 && !Process.HasExited; i++) { try { using var response = await Admin.PostAsync("admin/shutdown", null); if (response.IsSuccessStatusCode) break; } catch (HttpRequestException) { break; } await Task.Delay(100); }
+                    for (var i = 0; i < 20 && !Process.HasExited; i++) { try { using var response = await Admin.PostAsync("admin/shutdown", null); if (response.IsSuccessStatusCode) break; } catch (Exception error) when (error is HttpRequestException or ObjectDisposedException) { break; } await Task.Delay(100); }
                 if (!Process.WaitForExit(5000)) Process.Kill(); // Only the disposable agent started by this fixture.
                 await Process.WaitForExitAsync();
             }

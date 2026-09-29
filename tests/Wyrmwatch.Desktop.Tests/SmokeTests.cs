@@ -3,6 +3,8 @@ using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Styling;
+using Avalonia.LogicalTree;
+using Dragonwilds.Core;
 using Wyrmwatch.Desktop;
 
 [assembly: AvaloniaTestApplication(typeof(Wyrmwatch.Desktop.Tests.TestApp))]
@@ -15,6 +17,30 @@ public class TestApp
 }
 public class SmokeTests
 {
+    [AvaloniaFact]
+    public async Task ImportRequiresFolderReviewAndConfirmationAfterEveryChange()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "wyrmwatch-ui-" + Guid.NewGuid().ToString("N"));
+        var launcher = Path.Combine(root, "RSDragonwildsServer.exe");
+        var saved = Path.Combine(root, "RSDragonwilds", "Saved"); Directory.CreateDirectory(saved); File.WriteAllText(launcher, "fixture");
+        var dialog = new ImportServerDialog(launcher, []);
+        dialog.Show();
+        Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+        try
+        {
+            await dialog.ReviewAsync();
+            var controls = dialog.GetLogicalDescendants().OfType<Control>().ToArray();
+            var import = controls.OfType<Button>().Single(b => Equals(b.Content, "Import server"));
+            var confirmation = controls.OfType<CheckBox>().Single();
+            Assert.False(import.IsEnabled); confirmation.IsChecked = true;
+            Assert.True(import.IsEnabled, string.Join("\n", controls.OfType<TextBlock>().Select(t => t.Text)));
+            controls.OfType<TextBox>().Single(t => t.Name == "ImportSavedFolder").Text = Path.Combine(root, "missing");
+            Assert.False(import.IsEnabled); Assert.False(confirmation.IsChecked);
+            await dialog.ReviewAsync(); confirmation.IsChecked = true; Assert.False(import.IsEnabled);
+            Assert.Equal("fixture", File.ReadAllText(launcher));
+        }
+        finally { dialog.Close(); if (SafePaths.Within(root, Path.GetTempPath())) Directory.Delete(root, true); }
+    }
     [AvaloniaFact]
     public void PagesThemesAndFocusedFormSurviveStatusUpdates()
     {
