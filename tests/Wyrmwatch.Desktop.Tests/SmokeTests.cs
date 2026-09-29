@@ -25,11 +25,15 @@ public class SmokeTests
         {
             Assert.IsType<WorkspaceModel>(window.DataContext);
             var nav = window.FindControl<ListBox>("Navigation")!;
-            for (var i = 0; i < 7; i++) { nav.SelectedIndex = i; Assert.False(string.IsNullOrWhiteSpace(((WorkspaceModel)window.DataContext!).PageTitle)); }
+            for (var i = 0; i < nav.ItemCount; i++) { nav.SelectedIndex = i; Assert.False(string.IsNullOrWhiteSpace(((WorkspaceModel)window.DataContext!).PageTitle)); }
             nav.SelectedIndex = 5;
             var field = window.FindControl<TextBox>("ProfileName")!; field.Text = "Unsaved user input"; field.Focus();
             var model = (WorkspaceModel)window.DataContext!; model.Cpu = "12.3%"; model.Players = "3"; model.Status = "Online";
             Assert.Equal("Unsaved user input", field.Text);
+            var language = new Dragonwilds.Core.LanguagePack("xx", "Test language", new() { [Localization.Key("Make yourself at home.")] = "Translated settings" });
+            var languages = window.FindControl<ComboBox>("LanguagePicker")!; languages.ItemsSource = new[] { Localization.English, language }; languages.SelectedIndex = 1;
+            Assert.Equal("Translated settings", model.PageTitle); Assert.Equal("Unsaved user input", field.Text);
+            languages.SelectedIndex = 0;
             window.FindControl<ComboBox>("ThemePicker")!.SelectedIndex = 1;
             Assert.Equal(ThemeVariant.Light, Application.Current!.RequestedThemeVariant);
             nav.SelectedIndex = 0; nav.SelectedIndex = 5; Assert.Equal("Unsaved user input", field.Text);

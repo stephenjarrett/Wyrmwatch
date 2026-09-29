@@ -1,4 +1,4 @@
-name: MVP checks and builds
+name: Checks and portable builds
 on:
   push:
     branches: [main, 'sjarrett/**']

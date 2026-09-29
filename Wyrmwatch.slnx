@@ -1,5 +1,6 @@
 <Solution>
   <Folder Name="/src/">
+    <Project Path="src/Wyrmwatch.Agent/Wyrmwatch.Agent.csproj" />
     <Project Path="src/Dragonwilds.Core/Dragonwilds.Core.csproj" />
     <Project Path="src/Dragonwilds.Signal/Dragonwilds.Signal.csproj" />
     <Project Path="src/Dragonwilds.Windows/Dragonwilds.Windows.csproj" />

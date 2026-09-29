@@ -14,10 +14,13 @@
     <ProjectReference Include="../Dragonwilds.Core/Dragonwilds.Core.csproj" />
     <ProjectReference Include="../Dragonwilds.Windows/Dragonwilds.Windows.csproj" />
     <ProjectReference Include="../Dragonwilds.Signal/Dragonwilds.Signal.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="../Wyrmwatch.Agent/Wyrmwatch.Agent.csproj" ReferenceOutputAssembly="false" />
     <AvaloniaResource Include="Assets/**" />
   </ItemGroup>
   <Target Name="CopySignalHelper" AfterTargets="Build">
     <ItemGroup><SignalFiles Include="../Dragonwilds.Signal/bin/$(Configuration)/net10.0/Dragonwilds.Signal*" /></ItemGroup>
     <Copy SourceFiles="@(SignalFiles)" DestinationFolder="$(OutDir)" />
+    <ItemGroup><AgentFiles Include="../Wyrmwatch.Agent/bin/$(Configuration)/net10.0/**" Exclude="../Wyrmwatch.Agent/bin/$(Configuration)/net10.0/win-x64/**;../Wyrmwatch.Agent/bin/$(Configuration)/net10.0/linux-x64/**" /></ItemGroup>
+    <Copy SourceFiles="@(AgentFiles)" DestinationFiles="@(AgentFiles->'$(OutDir)agent/%(RecursiveDir)%(Filename)%(Extension)')" />
   </Target>
 </Project>
