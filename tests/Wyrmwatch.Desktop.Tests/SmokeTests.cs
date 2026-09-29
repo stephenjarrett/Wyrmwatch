@@ -4,6 +4,9 @@ using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Styling;
 using Avalonia.LogicalTree;
+using Avalonia.Media;
+using Avalonia.Controls.Presenters;
+using Avalonia.VisualTree;
 using Dragonwilds.Core;
 using Wyrmwatch.Desktop;
 
@@ -17,6 +20,42 @@ public class TestApp
 }
 public class SmokeTests
 {
+    [AvaloniaFact]
+    public void SelectedNavigationRemainsReadableAcrossThemeChanges()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "wyrmwatch-ui-" + Guid.NewGuid().ToString("N"));
+        Program.HeadlessTest = true; Program.Demo = false; Program.DataDirectory = root;
+        var originalTheme = Application.Current!.RequestedThemeVariant;
+        var window = new MainWindow(); window.Show();
+        try
+        {
+            var nav = window.FindControl<ListBox>("Navigation")!;
+            foreach (var theme in new[] { ThemeVariant.Dark, ThemeVariant.Light, ThemeVariant.Dark })
+            {
+                Application.Current.RequestedThemeVariant = theme;
+                nav.SelectedIndex = 5;
+                Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+                var selected = Assert.IsType<ListBoxItem>(nav.SelectedItem);
+                var presenter = selected.GetVisualDescendants().OfType<ContentPresenter>().First();
+                var background = Assert.IsAssignableFrom<ISolidColorBrush>(presenter.Background).Color;
+                foreach (var label in selected.GetLogicalDescendants().OfType<TextBlock>())
+                {
+                    var foreground = Assert.IsAssignableFrom<ISolidColorBrush>(label.Foreground).Color;
+                    var first = Luminance(foreground); var second = Luminance(background);
+                    var contrast = (Math.Max(first, second) + 0.05) / (Math.Min(first, second) + 0.05);
+                    Assert.True(contrast >= 4.5, $"{theme} navigation contrast was {contrast:F2}:1.");
+                }
+            }
+        }
+        finally { window.Close(); Application.Current.RequestedThemeVariant = originalTheme; if (Directory.Exists(root)) Directory.Delete(root, true); }
+    }
+
+    private static double Luminance(Color color)
+    {
+        static double Linear(byte value) { var channel = value / 255d; return channel <= 0.04045 ? channel / 12.92 : Math.Pow((channel + 0.055) / 1.055, 2.4); }
+        return 0.2126 * Linear(color.R) + 0.7152 * Linear(color.G) + 0.0722 * Linear(color.B);
+    }
+
     [AvaloniaFact]
     public async Task ImportRequiresFolderReviewAndConfirmationAfterEveryChange()
     {
