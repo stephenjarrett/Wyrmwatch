@@ -6,5 +6,6 @@
     <Deterministic>true</Deterministic>
     <Version>0.1.0</Version>
     <Authors>Stephen Jarrett</Authors>
+    <Copyright>Copyright (c) 2026 Stephen Jarrett and Wyrmwatch contributors.</Copyright>
   </PropertyGroup>
 </Project>

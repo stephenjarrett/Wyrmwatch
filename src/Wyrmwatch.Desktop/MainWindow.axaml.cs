@@ -311,6 +311,14 @@ public partial class MainWindow : Window
     private void OpenBackupFolder(object? sender, RoutedEventArgs e) { if (model.SelectedProfile is { } p) OpenPath(p.BackupPath); }
     private void OpenServerLog(object? sender, RoutedEventArgs e) { if (model.SelectedProfile is { } p) OpenPath(p.LogPath); }
     private void OpenGuide(object? sender, RoutedEventArgs e) => OpenPath("https://runescapedragonwilds.help.jagex.com/hc/en-gb/articles/45365343055249-Dedicated-Servers-How-to-Guide");
+    private void OpenProject(object? sender, RoutedEventArgs e) => OpenPath("https://github.com/stephenjarrett/Wyrmwatch");
+    private void OpenLicense(object? sender, RoutedEventArgs e) => OpenDistributionDocument("LICENSE");
+    private void OpenNotices(object? sender, RoutedEventArgs e) => OpenDistributionDocument("THIRD-PARTY-NOTICES.md");
+    private void OpenDistributionDocument(string name)
+    {
+        var path = Path.Combine(AppContext.BaseDirectory, name == "LICENSE" ? "LICENSE.txt" : name);
+        OpenPath(File.Exists(path) ? path : $"https://github.com/stephenjarrett/Wyrmwatch/blob/sjarrett/initial-mvp/{name}");
+    }
     private void OpenPath(string path) { try { if (!path.StartsWith("https://") && !File.Exists(path) && !Directory.Exists(path)) throw new IOException("The file or folder does not exist yet."); Process.Start(new ProcessStartInfo(path) { UseShellExecute = true }); } catch (Exception e) { model.Notice = e.Message; } }
     private async void RefreshDiagnostics(object? sender, RoutedEventArgs e)
     {

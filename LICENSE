@@ -1,0 +1,101 @@
+Wyrmwatch Source-Available License 1.0
+
+Copyright (c) 2026 Stephen Jarrett and Wyrmwatch contributors.
+All rights reserved except as expressly granted below.
+
+Canonical project: https://github.com/stephenjarrett/Wyrmwatch
+Project owner: Stephen Jarrett (GitHub: stephenjarrett)
+
+1. Scope
+
+This license applies to the original Wyrmwatch code, documentation, and
+artwork supplied with it (the "Software"). Separately licensed third-party
+components remain under their own licenses; see THIRD-PARTY-NOTICES.md.
+This is a source-available license, not an OSI-approved open-source license.
+
+2. Use and contributions
+
+Subject to these terms, you receive a non-exclusive, worldwide, royalty-free
+copyright license to:
+
+  a. Read, download, clone, build, run, and privately modify the Software
+     for your own personal or internal organizational use, including
+     managing your game servers. You may make necessary backup copies.
+
+  b. Create and maintain GitHub forks, branches, patches, and pull requests
+     for the purpose of proposing contributions to the canonical project.
+     You may share modified source and temporary build artifacts through
+     those contribution workflows for review, testing, and collaboration.
+     You may retain the contribution history if a proposal is not accepted.
+
+  c. Submit bug reports, documentation, fixes, and feature contributions
+     without requesting advance permission. Acceptance remains the
+     maintainers' decision. Private changes need not be submitted.
+
+3. Redistribution requires permission
+
+Except for section 2, section 5, separately licensed components, and rights
+that applicable law provides independently of this license, you must obtain
+the project owner's prior written permission before distributing, publishing,
+selling, sublicensing, or otherwise making copies of the Software or works
+derived from it available to others. This applies to source and binaries,
+with or without changes, whether provided free or for payment, including
+separate releases, mirrors, repackaged builds, and rebranded editions.
+
+Sharing a link to the canonical project or its official downloads is allowed.
+The contribution allowance does not authorize a separate product release.
+Request additional permissions through an issue in the canonical project;
+permission is granted only by an explicit written response from the owner.
+
+4. Contribution terms
+
+By intentionally submitting a contribution for inclusion in the canonical
+project, you confirm that you have the right to grant the following rights.
+You retain copyright in your contribution. You grant the project owner a
+perpetual, irrevocable, non-exclusive, worldwide, royalty-free copyright
+license to use, reproduce, modify, incorporate, and distribute that
+contribution as part of Wyrmwatch, including under this license and the
+additional written permissions described in section 3. Recipients receive
+the applicable project license. This is not a copyright assignment.
+
+Material clearly identified as separately licensed third-party material
+remains subject to that license and is not relicensed by this section.
+Do not submit material whose terms conflict with this project's use of it.
+
+5. GitHub and legal rights
+
+Nothing here restricts permissions necessarily granted to GitHub or its
+users under GitHub's Terms of Service for a public repository, including
+viewing and forking through the service. Those permissions are distinct
+from permission to distribute independent releases under section 3.
+Nothing here limits fair use, fair dealing, or other rights that cannot
+lawfully be restricted by these terms.
+
+6. Notices and names
+
+Keep this license and applicable copyright and third-party notices with
+permitted copies. Clearly identify your modifications in contribution
+history. No trademark rights or right to imply official endorsement are
+granted. References identifying the project and contribution forks are
+permitted; do not present an unofficial release as an official one.
+
+7. Termination
+
+The permissions granted by this license end if you materially violate its
+conditions. If you correct a first violation within 30 days of receiving
+written notice, those permissions are reinstated. Rights independently
+granted by third-party licenses, GitHub's terms, or applicable law remain
+unaffected. Previously granted contribution rights in section 4 survive.
+
+8. No warranty or liability
+
+TO THE EXTENT PERMITTED BY APPLICABLE LAW, THE SOFTWARE IS PROVIDED "AS IS",
+WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT.
+IN NO EVENT SHALL THE COPYRIGHT HOLDERS OR CONTRIBUTORS BE LIABLE FOR ANY
+CLAIM, DAMAGES, OR OTHER LIABILITY, WHETHER IN CONTRACT, TORT, OR OTHERWISE,
+ARISING FROM, OUT OF, OR IN CONNECTION WITH THE SOFTWARE OR ITS USE.
+
+No rights beyond those expressly granted are implied. This license does
+not change the license terms of copies previously supplied under a
+different license.

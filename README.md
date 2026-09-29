@@ -4,6 +4,12 @@ A focused desktop manager for RuneScape: Dragonwilds dedicated servers. Built in
 
 An unofficial community tool, not affiliated with Jagex.
 
+## License and contributions
+
+Wyrmwatch is publicly developed under the [Wyrmwatch Source-Available License](LICENSE). You may download, build, run, and privately modify it for personal or internal organizational use. Anyone can fork for contributions and open a pull request here; see [CONTRIBUTING.md](CONTRIBUTING.md).
+
+Redistributing the app, publishing independent releases, or shipping rebranded versions requires Stephen Jarrett's prior written permission, subject to the license's contribution, GitHub, and legal-rights allowances. Sharing a link to this repository or its official downloads is welcome. These restrictions make the project **source-available**, rather than open source under the Open Source Definition. Third-party components retain their [own licenses](THIRD-PARTY-NOTICES.md).
+
 ## MVP
 
 - Modern dashboard, CPU/memory graphs, free disk space, dark/light/system themes.
