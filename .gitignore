@@ -1,0 +1,10 @@
+.tools/
+**/bin/
+**/obj/
+artifacts/
+dist/
+.vs/
+*.user
+TestResults/
+*.pfx
+*.log

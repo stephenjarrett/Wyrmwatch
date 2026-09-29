@@ -1,0 +1,104 @@
+<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="using:Wyrmwatch.Desktop" x:Class="Wyrmwatch.Desktop.MainWindow"
+        Title="Wyrmwatch · Dragonwilds server manager" Width="1240" Height="850" MinWidth="980" MinHeight="680" WindowStartupLocation="CenterScreen">
+  <Grid ColumnDefinitions="224,*">
+    <Border Background="{DynamicResource SidebarBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,1,0">
+      <Grid RowDefinitions="Auto,Auto,*,Auto" Margin="16,28,16,20">
+        <StackPanel Orientation="Horizontal" Spacing="12" Margin="8,0,0,30">
+          <Border Background="#8A78F0" CornerRadius="11" Width="38" Height="38"><TextBlock Text="W" FontSize="22" FontWeight="Bold" Foreground="#181321" HorizontalAlignment="Center" VerticalAlignment="Center" /></Border>
+          <StackPanel VerticalAlignment="Center" Spacing="2"><TextBlock Text="Wyrmwatch" FontSize="19" FontWeight="SemiBold" /><TextBlock Text="DRAGONWILDS" Classes="eyebrow" FontSize="9" /></StackPanel>
+        </StackPanel>
+        <TextBlock Grid.Row="1" Text="WORKSPACE" Classes="eyebrow" Margin="14,0,0,12" />
+        <ListBox Grid.Row="2" x:Name="Navigation" Classes="nav" SelectedIndex="0" SelectionChanged="Navigate">
+          <ListBoxItem><StackPanel Orientation="Horizontal" Spacing="14"><TextBlock Text="◈" Width="18" /><TextBlock Text="Overview" /></StackPanel></ListBoxItem>
+          <ListBoxItem><StackPanel Orientation="Horizontal" Spacing="14"><TextBlock Text="⌁" Width="18" /><TextBlock Text="Resources" /></StackPanel></ListBoxItem>
+          <ListBoxItem><StackPanel Orientation="Horizontal" Spacing="14"><TextBlock Text="◷" Width="18" /><TextBlock Text="Automation" /></StackPanel></ListBoxItem>
+          <ListBoxItem><StackPanel Orientation="Horizontal" Spacing="14"><TextBlock Text="▣" Width="18" /><TextBlock Text="Backups" /></StackPanel></ListBoxItem>
+          <ListBoxItem><StackPanel Orientation="Horizontal" Spacing="14"><TextBlock Text="☷" Width="18" /><TextBlock Text="Activity" /></StackPanel></ListBoxItem>
+          <ListBoxItem><StackPanel Orientation="Horizontal" Spacing="14"><TextBlock Text="⚙" Width="18" /><TextBlock Text="Settings" /></StackPanel></ListBoxItem>
+          <ListBoxItem><StackPanel Orientation="Horizontal" Spacing="14"><TextBlock Text="?" Width="18" /><TextBlock Text="Help &amp; diagnostics" /></StackPanel></ListBoxItem>
+        </ListBox>
+        <StackPanel Grid.Row="3" Spacing="12" Margin="8,0">
+          <Border Height="1" Background="{DynamicResource LineBrush}" Margin="0,0,0,4" />
+          <TextBlock Text="●  Local workspace" Foreground="#89C6A9" FontSize="12" />
+          <TextBlock Text="v0.1.0 · Preview" Classes="muted" FontSize="11" />
+          <TextBlock Text="Windows + Linux" Classes="muted" FontSize="11" />
+        </StackPanel>
+      </Grid>
+    </Border>
+    <Grid Grid.Column="1" RowDefinitions="Auto,*,Auto" Margin="34,28,34,18">
+      <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,26">
+        <StackPanel Spacing="6"><TextBlock Text="{Binding PageTitle}" Classes="heading" /><TextBlock Text="{Binding PageSubtitle}" Classes="muted" /></StackPanel>
+        <ComboBox Grid.Column="1" Width="230" ItemsSource="{Binding Profiles}" SelectedItem="{Binding SelectedProfile}" VerticalAlignment="Center" PlaceholderText="No server connected" SelectionChanged="ServerSelected">
+          <ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding Name}" /></DataTemplate></ComboBox.ItemTemplate>
+        </ComboBox>
+      </Grid>
+      <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled">
+        <Grid>
+          <StackPanel x:Name="OverviewPage" Spacing="20">
+            <Border Classes="card" Background="{DynamicResource HeroBrush}" Padding="28" IsVisible="{Binding NoServer}">
+              <StackPanel Spacing="16">
+                <TextBlock Text="A home for your worlds." FontSize="27" FontWeight="SemiBold" />
+                <TextBlock Text="Keep your server healthy, your backups close, and your next adventure ready." Classes="muted" TextWrapping="Wrap" MaxWidth="570" HorizontalAlignment="Left" />
+                <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,8,0,0"><Button Classes="primary" Content="Connect existing server" Click="ConnectServer" /><Button Classes="subtle" Content="Install a new server" Click="NewServer" /></StackPanel>
+                <TextBlock Text="Connecting reads your existing installation. It does not move or reinstall it." Classes="muted" FontSize="12" TextWrapping="Wrap" />
+              </StackPanel>
+            </Border>
+            <Border Classes="card" Background="{DynamicResource HeroBrush}" Padding="26" IsVisible="{Binding HasServer}">
+              <StackPanel Spacing="18">
+                <Grid ColumnDefinitions="*,Auto"><StackPanel Spacing="8"><TextBlock Text="YOUR SERVER" Classes="eyebrow" /><TextBlock Text="{Binding ServerName}" FontSize="25" FontWeight="SemiBold" /></StackPanel><Border Grid.Column="1" CornerRadius="20" Background="#253F36" Padding="14,6" VerticalAlignment="Top"><TextBlock Text="{Binding Status}" Foreground="#A0E0BF" FontSize="12" /></Border></Grid>
+                <TextBlock Text="{Binding ServerPath}" Classes="muted" TextTrimming="CharacterEllipsis" FontSize="12" />
+                <StackPanel Orientation="Horizontal" Spacing="10" IsEnabled="{Binding CanAct}"><Button Classes="primary" Content="Start server" Click="StartServer" /><Button Content="Back up now" Click="CreateBackup" /><Button Classes="subtle" Content="Restart" Click="RestartServer" /><Button Classes="subtle" Content="Stop" Click="StopServer" /></StackPanel>
+              </StackPanel>
+            </Border>
+            <Grid ColumnDefinitions="*,*,*,*" ColumnSpacing="12">
+              <Border Classes="card" Padding="18"><StackPanel Spacing="12"><TextBlock Text="PLAYERS" Classes="eyebrow" /><TextBlock Text="{Binding Players}" FontSize="28" /><TextBlock Text="Connected now" Classes="muted" FontSize="11" /></StackPanel></Border>
+              <Border Grid.Column="1" Classes="card" Padding="18"><StackPanel Spacing="12"><TextBlock Text="CPU" Classes="eyebrow" /><TextBlock Text="{Binding Cpu}" FontSize="28" /><TextBlock Text="Share of host CPU" Classes="muted" FontSize="11" /></StackPanel></Border>
+              <Border Grid.Column="2" Classes="card" Padding="18"><StackPanel Spacing="12"><TextBlock Text="MEMORY" Classes="eyebrow" /><TextBlock Text="{Binding Memory}" FontSize="28" /><TextBlock Text="Server processes" Classes="muted" FontSize="11" /></StackPanel></Border>
+              <Border Grid.Column="3" Classes="card" Padding="18"><StackPanel Spacing="12"><TextBlock Text="UPTIME" Classes="eyebrow" /><TextBlock Text="{Binding Uptime}" FontSize="28" /><TextBlock Text="Since last start" Classes="muted" FontSize="11" /></StackPanel></Border>
+            </Grid>
+            <Grid ColumnDefinitions="*,*" ColumnSpacing="16">
+              <Border Classes="card"><StackPanel Spacing="14"><TextBlock Text="A little peace of mind" Classes="section" /><TextBlock Text="Verified backups protect your saves and configuration. Set a schedule once, and keep playing." Classes="muted" TextWrapping="Wrap" MinHeight="64" /><TextBlock Text="{Binding BackupSummary}" FontSize="12" /><Button Content="Manage backups  →" Click="GoBackups" HorizontalAlignment="Left" /></StackPanel></Border>
+              <Border Grid.Column="1" Classes="card"><StackPanel Spacing="14"><TextBlock Text="Updates, on your terms" Classes="section" /><TextBlock Text="Check for new builds and apply them after your server has been empty for 60 seconds." Classes="muted" TextWrapping="Wrap" MinHeight="64" /><TextBlock Text="{Binding BuildSummary}" FontSize="12" TextTrimming="CharacterEllipsis" /><StackPanel Orientation="Horizontal" Spacing="8" IsEnabled="{Binding CanAct}"><Button Content="Check updates" Click="CheckUpdates" /><Button Classes="subtle" Content="Apply update" Click="ApplyUpdate" /></StackPanel></StackPanel></Border>
+            </Grid>
+            <Border Classes="card" Padding="18"><Grid ColumnDefinitions="Auto,*"><TextBlock Text="●" Foreground="#8A78F0" Margin="0,0,12,0" /><StackPanel Grid.Column="1" Spacing="5"><TextBlock Text="{Binding AutomationSummary}" FontWeight="Medium" /><TextBlock Text="Schedules continue while the app is open or in the tray. Your computer must stay awake." Classes="muted" FontSize="12" TextWrapping="Wrap" /></StackPanel></Grid></Border>
+          </StackPanel>
+          <StackPanel x:Name="ResourcesPage" IsVisible="False" Spacing="20">
+            <Border Classes="card"><StackPanel Spacing="16"><Grid ColumnDefinitions="*,Auto"><TextBlock Text="Processor" Classes="section" /><TextBlock Grid.Column="1" Text="{Binding Cpu}" Foreground="#AF9EFF" /></Grid><local:Sparkline x:Name="CpuChart" Height="180" /><TextBlock Text="Last 5 minutes · sampled every 3 seconds · percentage of host CPU" Classes="muted" FontSize="12" /></StackPanel></Border>
+            <Border Classes="card"><StackPanel Spacing="16"><Grid ColumnDefinitions="*,Auto"><TextBlock Text="Memory" Classes="section" /><TextBlock Grid.Column="1" Text="{Binding Memory}" Foreground="#88C8AD" /></Grid><local:Sparkline x:Name="MemoryChart" Height="180" /><TextBlock Text="Working set across the selected server's game processes" Classes="muted" FontSize="12" /></StackPanel></Border>
+            <Border Classes="card"><Grid ColumnDefinitions="*,Auto"><TextBlock Text="Free space on server drive" /><TextBlock Grid.Column="1" Text="{Binding DiskFree}" FontWeight="SemiBold" /></Grid></Border>
+          </StackPanel>
+          <StackPanel x:Name="AutomationPage" IsVisible="False" Spacing="18">
+            <Border Classes="card"><StackPanel Spacing="18"><TextBlock Text="Server updates" Classes="section" /><ToggleSwitch x:Name="AutoUpdate" Content="Check and install new builds automatically" /><TextBlock Text="Updates always wait for 60 seconds with no players. Unknown player activity defers the update." Classes="muted" TextWrapping="Wrap" /><Grid ColumnDefinitions="*,*" ColumnSpacing="20"><StackPanel Spacing="8"><TextBlock Text="Check every (minutes)" /><NumericUpDown x:Name="UpdateInterval" Minimum="5" Maximum="10080" Value="60" FormatString="0" /></StackPanel><StackPanel Grid.Column="1" Spacing="8"><TextBlock Text="Next check" /><TextBlock Text="{Binding NextUpdate}" Classes="muted" Margin="0,10,0,0" /></StackPanel></Grid></StackPanel></Border>
+            <Border Classes="card"><StackPanel Spacing="18"><ToggleSwitch x:Name="UseWindow" Content="Only update during a daily maintenance window" /><Grid ColumnDefinitions="*,*" ColumnSpacing="20"><StackPanel Spacing="8"><TextBlock Text="Start (local time, HH:mm)" /><TextBox x:Name="WindowStart" Text="03:00" /></StackPanel><StackPanel Grid.Column="1" Spacing="8"><TextBlock Text="End (local time, HH:mm)" /><TextBox x:Name="WindowEnd" Text="05:00" /></StackPanel></Grid></StackPanel></Border>
+            <Border Classes="card"><StackPanel Spacing="18"><TextBlock Text="Scheduled backups" Classes="section" /><ToggleSwitch x:Name="AutoBackup" Content="Create verified backups automatically" /><Grid ColumnDefinitions="*,*" ColumnSpacing="20"><StackPanel Spacing="8"><TextBlock Text="Back up every (hours)" /><NumericUpDown x:Name="BackupInterval" Minimum="1" Maximum="720" Value="6" FormatString="0" /></StackPanel><StackPanel Grid.Column="1" Spacing="8"><TextBlock Text="Archives to keep" /><NumericUpDown x:Name="Retention" Minimum="1" Maximum="1000" Value="20" FormatString="0" /></StackPanel></Grid><TextBlock Text="{Binding NextBackup}" Classes="muted" /></StackPanel></Border>
+            <Button Classes="primary" Content="Save automation" Click="SaveAutomation" IsEnabled="{Binding CanAct}" HorizontalAlignment="Left" />
+          </StackPanel>
+          <StackPanel x:Name="BackupsPage" IsVisible="False" Spacing="18">
+            <Grid ColumnDefinitions="*,Auto"><TextBlock Text="Your recovery points" Classes="section" VerticalAlignment="Center" /><StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10" IsEnabled="{Binding CanAct}"><Button Classes="subtle" Content="Open folder" Click="OpenBackupFolder" /><Button Classes="primary" Content="Back up now" Click="CreateBackup" /></StackPanel></Grid>
+            <Border Classes="card"><StackPanel Spacing="12"><TextBlock Text="Verified before they count." FontWeight="SemiBold" /><TextBlock Text="Each backup is checked against its file hashes before it becomes a recovery point. Live backups include data already saved to disk." Classes="muted" TextWrapping="Wrap" /><TextBlock Text="Restore requires a stopped server. It first backs up the current state and retains replaced folders for recovery." Classes="muted" TextWrapping="Wrap" /></StackPanel></Border>
+            <TextBlock Text="{Binding BackupSummary}" Classes="muted" />
+            <ListBox x:Name="BackupList" ItemsSource="{Binding Backups}" Background="Transparent" MinHeight="160" MaxHeight="330">
+              <ListBox.ItemTemplate><DataTemplate><Grid ColumnDefinitions="*,Auto" Margin="6,10"><StackPanel Spacing="5"><TextBlock Text="{Binding Title}" FontWeight="SemiBold" /><TextBlock Text="{Binding Detail}" Classes="muted" FontSize="12" /></StackPanel><TextBlock Grid.Column="1" Text="{Binding Size}" Classes="muted" VerticalAlignment="Center" /></Grid></DataTemplate></ListBox.ItemTemplate>
+            </ListBox>
+            <StackPanel Orientation="Horizontal" Spacing="10" IsEnabled="{Binding CanAct}"><Button Content="Verify selected backup" Click="VerifyBackup" /><Button Classes="subtle" Content="Restore selected backup…" Click="RestoreBackup" /></StackPanel>
+          </StackPanel>
+          <StackPanel x:Name="ActivityPage" IsVisible="False" Spacing="18">
+            <Border Classes="card"><StackPanel Spacing="12"><TextBlock Text="Operation history" Classes="section" /><ListBox ItemsSource="{Binding Operations}" Background="Transparent" MaxHeight="260" MinHeight="130"><ListBox.ItemTemplate><DataTemplate><StackPanel Spacing="5" Margin="4,8"><TextBlock Text="{Binding Title}" FontWeight="SemiBold" /><TextBlock Text="{Binding Detail}" Classes="muted" FontSize="12" TextWrapping="Wrap" /></StackPanel></DataTemplate></ListBox.ItemTemplate></ListBox></StackPanel></Border>
+            <Border Classes="card"><StackPanel Spacing="12"><Grid ColumnDefinitions="*,Auto"><TextBlock Text="Live activity" Classes="section" /><Button Grid.Column="1" Content="Copy" Click="CopyActivity" Padding="12,4" /></Grid><TextBox Text="{Binding Activity}" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" Height="260" FontFamily="Cascadia Mono, Consolas, monospace" FontSize="12" /></StackPanel></Border>
+          </StackPanel>
+          <StackPanel x:Name="SettingsPage" IsVisible="False" Spacing="18">
+            <Border Classes="card"><StackPanel Spacing="16"><TextBlock Text="Appearance &amp; desktop" Classes="section" /><Grid ColumnDefinitions="*,Auto"><StackPanel Spacing="4"><TextBlock Text="Theme" /><TextBlock Text="Make this workspace yours." Classes="muted" FontSize="12" /></StackPanel><ComboBox x:Name="ThemePicker" Grid.Column="1" Width="170" SelectedIndex="0" SelectionChanged="ThemeChanged"><ComboBoxItem Content="Dark" /><ComboBoxItem Content="Light" /><ComboBoxItem Content="System" /></ComboBox></Grid><ToggleSwitch x:Name="CloseToTray" Content="Keep running in the tray when the window closes" IsChecked="True" /><ToggleSwitch x:Name="LaunchAtLogin" Content="Launch minimized when I sign in" /><Button Content="Save desktop preferences" Click="SaveDesktop" HorizontalAlignment="Left" /></StackPanel></Border>
+            <Border Classes="card"><StackPanel Spacing="16"><Grid ColumnDefinitions="*,Auto"><TextBlock Text="Server connection" Classes="section" /><Button Grid.Column="1" Content="Connect another…" Click="ConnectServer" Padding="12,5" /></Grid><TextBlock Text="Saving these preferences does not modify game configuration." Classes="muted" FontSize="12" /><TextBox x:Name="ProfileName" PlaceholderText="Display name" /><TextBlock Text="Installation folder" /><TextBox x:Name="InstallFolder" IsReadOnly="True" PlaceholderText="Connect a server to begin" /><TextBlock Text="Save-data folder (Saved)" /><Grid ColumnDefinitions="*,Auto" ColumnSpacing="8"><TextBox x:Name="DataFolder" PlaceholderText="Default: installation / RSDragonwilds / Saved" /><Button Grid.Column="1" Content="Browse…" Click="BrowseData" /></Grid><TextBlock Text="Backup folder" /><Grid ColumnDefinitions="*,Auto" ColumnSpacing="8"><TextBox x:Name="BackupFolder" /><Button Grid.Column="1" Content="Browse…" Click="BrowseBackups" /></Grid><Button Content="Save connection" Click="SaveConnection" IsEnabled="{Binding CanAct}" HorizontalAlignment="Left" /></StackPanel></Border>
+            <Border Classes="card"><StackPanel Spacing="16"><TextBlock Text="Game configuration" Classes="section" /><TextBlock Text="The server must be stopped before these values can be written." Classes="muted" FontSize="12" /><Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="16" RowSpacing="14"><StackPanel Spacing="6"><TextBlock Text="Owner / player ID" /><TextBox x:Name="OwnerId" /></StackPanel><StackPanel Grid.Column="1" Spacing="6"><TextBlock Text="Server name" /><TextBox x:Name="GameServerName" /></StackPanel><StackPanel Grid.Row="1" Spacing="6"><TextBlock Text="Default world name" /><TextBox x:Name="WorldName" /></StackPanel><StackPanel Grid.Row="1" Grid.Column="1" Spacing="6"><TextBlock Text="UDP port" /><NumericUpDown x:Name="GamePort" Value="7777" Minimum="1024" Maximum="65535" FormatString="0" /></StackPanel><StackPanel Grid.Row="2" Spacing="6"><TextBlock Text="Admin password" /><TextBox x:Name="AdminPassword" PasswordChar="●" /></StackPanel><StackPanel Grid.Row="2" Grid.Column="1" Spacing="6"><TextBlock Text="World password (optional)" /><TextBox x:Name="WorldPassword" PasswordChar="●" /></StackPanel></Grid><Button Content="Write game configuration…" Click="WriteConfiguration" IsEnabled="{Binding CanAct}" HorizontalAlignment="Left" /></StackPanel></Border>
+          </StackPanel>
+          <StackPanel x:Name="HelpPage" IsVisible="False" Spacing="18">
+            <Border Classes="card"><StackPanel Spacing="16"><TextBlock Text="Start with your existing world" Classes="section" /><TextBlock Text="Connect the server launcher, check the save-data folder, then create a backup. Enable schedules when you are ready. Connecting never reinstalls your server." Classes="muted" TextWrapping="Wrap" /><TextBlock Text="If your server stores data in your user profile, choose its actual Saved folder under Settings before creating a backup." Classes="muted" TextWrapping="Wrap" /><Button Content="Open the official Dragonwilds guide  ↗" Click="OpenGuide" HorizontalAlignment="Left" /></StackPanel></Border>
+            <Border Classes="card"><StackPanel Spacing="16"><TextBlock Text="Networking" Classes="section" /><TextBlock Text="Allow the configured UDP game port through the host firewall and forward it on your router if hosting over the internet. Remote control of this manager is not included in this MVP." Classes="muted" TextWrapping="Wrap" /><TextBlock Text="This app does not change firewall rules or router settings automatically." Classes="muted" FontSize="12" /></StackPanel></Border>
+            <Border Classes="card"><StackPanel Spacing="16"><Grid ColumnDefinitions="*,Auto"><TextBlock Text="Diagnostics" Classes="section" /><Button Grid.Column="1" Content="Refresh" Click="RefreshDiagnostics" Padding="12,5" /></Grid><TextBlock Text="{Binding Diagnostics}" FontFamily="Cascadia Mono, Consolas, monospace" FontSize="12" TextWrapping="Wrap" /><Button Content="Open server log" Click="OpenServerLog" IsEnabled="{Binding HasServer}" HorizontalAlignment="Left" /></StackPanel></Border>
+          </StackPanel>
+        </Grid>
+      </ScrollViewer>
+      <StackPanel Grid.Row="2" Spacing="8" Margin="0,18,0,0"><ProgressBar IsIndeterminate="True" IsVisible="{Binding Busy}" Height="3" /><TextBlock Text="{Binding Notice}" Classes="muted" FontSize="12" TextWrapping="Wrap" MaxHeight="60" /></StackPanel>
+    </Grid>
+  </Grid>
+</Window>

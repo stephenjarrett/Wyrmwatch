@@ -1,0 +1,32 @@
+<Application xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" x:Class="Wyrmwatch.Desktop.App" RequestedThemeVariant="Dark">
+  <Application.Styles>
+    <FluentTheme />
+    <Style Selector="Window"><Setter Property="FontFamily" Value="Inter, Segoe UI" /><Setter Property="FontSize" Value="14" /><Setter Property="Background" Value="{DynamicResource CanvasBrush}" /></Style>
+    <Style Selector="TextBlock"><Setter Property="Foreground" Value="{DynamicResource TextBrush}" /></Style>
+    <Style Selector="TextBlock.muted"><Setter Property="Foreground" Value="{DynamicResource MutedBrush}" /></Style>
+    <Style Selector="TextBlock.eyebrow"><Setter Property="Foreground" Value="{DynamicResource MutedBrush}" /><Setter Property="FontSize" Value="11" /><Setter Property="FontWeight" Value="SemiBold" /><Setter Property="LetterSpacing" Value="1.4" /></Style>
+    <Style Selector="TextBlock.heading"><Setter Property="FontSize" Value="30" /><Setter Property="FontWeight" Value="SemiBold" /><Setter Property="LetterSpacing" Value="-0.7" /></Style>
+    <Style Selector="TextBlock.section"><Setter Property="FontSize" Value="17" /><Setter Property="FontWeight" Value="SemiBold" /></Style>
+    <Style Selector="Border.card"><Setter Property="Background" Value="{DynamicResource CardBrush}" /><Setter Property="BorderBrush" Value="{DynamicResource LineBrush}" /><Setter Property="BorderThickness" Value="1" /><Setter Property="CornerRadius" Value="12" /><Setter Property="Padding" Value="22" /></Style>
+    <Style Selector="Button"><Setter Property="CornerRadius" Value="7" /><Setter Property="Padding" Value="16,10" /><Setter Property="Cursor" Value="Hand" /></Style>
+    <Style Selector="Button.primary"><Setter Property="Background" Value="#8A78F0" /><Setter Property="Foreground" Value="#111019" /><Setter Property="FontWeight" Value="SemiBold" /></Style>
+    <Style Selector="Button.subtle"><Setter Property="Background" Value="Transparent" /><Setter Property="BorderBrush" Value="{DynamicResource LineBrush}" /><Setter Property="BorderThickness" Value="1" /></Style>
+    <Style Selector="TextBox"><Setter Property="CornerRadius" Value="7" /><Setter Property="MinHeight" Value="38" /></Style>
+    <Style Selector="ComboBox"><Setter Property="CornerRadius" Value="7" /><Setter Property="MinHeight" Value="38" /></Style>
+    <Style Selector="ListBox.nav"><Setter Property="Background" Value="Transparent" /><Setter Property="BorderThickness" Value="0" /></Style>
+    <Style Selector="ListBox.nav ListBoxItem"><Setter Property="CornerRadius" Value="8" /><Setter Property="Padding" Value="14,12" /><Setter Property="Margin" Value="0,3" /><Setter Property="FontSize" Value="14" /></Style>
+    <Style Selector="ListBox.nav ListBoxItem:selected /template/ ContentPresenter"><Setter Property="Background" Value="#302A4A" /><Setter Property="Foreground" Value="#CABEFF" /></Style>
+  </Application.Styles>
+  <Application.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.ThemeDictionaries>
+        <ResourceDictionary x:Key="Dark">
+          <SolidColorBrush x:Key="CanvasBrush" Color="#18191F" /><SolidColorBrush x:Key="SidebarBrush" Color="#121318" /><SolidColorBrush x:Key="CardBrush" Color="#202128" /><SolidColorBrush x:Key="LineBrush" Color="#32333D" /><SolidColorBrush x:Key="TextBrush" Color="#EEEFF4" /><SolidColorBrush x:Key="MutedBrush" Color="#9B9EAF" /><SolidColorBrush x:Key="HeroBrush" Color="#252236" />
+        </ResourceDictionary>
+        <ResourceDictionary x:Key="Light">
+          <SolidColorBrush x:Key="CanvasBrush" Color="#F3F4F8" /><SolidColorBrush x:Key="SidebarBrush" Color="#E9EBF2" /><SolidColorBrush x:Key="CardBrush" Color="#FFFFFF" /><SolidColorBrush x:Key="LineBrush" Color="#D9DCE7" /><SolidColorBrush x:Key="TextBrush" Color="#202131" /><SolidColorBrush x:Key="MutedBrush" Color="#5F6377" /><SolidColorBrush x:Key="HeroBrush" Color="#EAE5FF" />
+        </ResourceDictionary>
+      </ResourceDictionary.ThemeDictionaries>
+    </ResourceDictionary>
+  </Application.Resources>
+</Application>

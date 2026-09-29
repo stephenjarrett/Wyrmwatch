@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>Wyrmwatch</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <AvaloniaUseCompiledBindingsByDefault>false</AvaloniaUseCompiledBindingsByDefault>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="12.1.3" />
+    <PackageReference Include="Avalonia.Desktop" Version="12.1.3" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.3" />
+    <PackageReference Include="Avalonia.Fonts.Inter" Version="12.1.3" />
+    <ProjectReference Include="../Dragonwilds.Core/Dragonwilds.Core.csproj" />
+    <ProjectReference Include="../Dragonwilds.Windows/Dragonwilds.Windows.csproj" />
+    <ProjectReference Include="../Dragonwilds.Signal/Dragonwilds.Signal.csproj" ReferenceOutputAssembly="false" />
+    <AvaloniaResource Include="Assets/**" />
+  </ItemGroup>
+  <Target Name="CopySignalHelper" AfterTargets="Build">
+    <ItemGroup><SignalFiles Include="../Dragonwilds.Signal/bin/$(Configuration)/net10.0/Dragonwilds.Signal*" /></ItemGroup>
+    <Copy SourceFiles="@(SignalFiles)" DestinationFolder="$(OutDir)" />
+  </Target>
+</Project>

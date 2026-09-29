@@ -1,0 +1,13 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Dragonwilds.Core/Dragonwilds.Core.csproj" />
+    <Project Path="src/Dragonwilds.Signal/Dragonwilds.Signal.csproj" />
+    <Project Path="src/Dragonwilds.Windows/Dragonwilds.Windows.csproj" />
+    <Project Path="src/Wyrmwatch.Desktop/Wyrmwatch.Desktop.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Dragonwilds.Core.Tests/Dragonwilds.Core.Tests.csproj" />
+    <Project Path="tests/FixtureServer/FixtureServer.csproj" />
+    <Project Path="tests/Wyrmwatch.Desktop.Tests/Wyrmwatch.Desktop.Tests.csproj" />
+  </Folder>
+</Solution>
