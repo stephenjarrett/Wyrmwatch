@@ -87,14 +87,28 @@ public sealed class OperationHistory(JsonStore store)
 
 public static class InstallationLease
 {
-    public static FileStream Acquire(string installation)
+    public static FileStream Acquire(string installation) => Acquire(installation, Path.GetTempPath());
+
+    internal static FileStream Acquire(string installation, string temporaryRoot)
     {
         var normalized = SafePaths.Full(installation);
         if (OperatingSystem.IsWindows()) normalized = normalized.ToUpperInvariant();
         var key = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(normalized)));
-        var directory = Path.Combine(Path.GetTempPath(), "Wyrmwatch-operation-locks");
-        Directory.CreateDirectory(directory); SafePaths.NoLinks(directory);
-        try { return new FileStream(Path.Combine(directory, key + ".lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None); }
+        // Unix temp is shared by accounts. A single owner-writable directory would
+        // let the first account block every other account's unrelated installations.
+        var directory = Path.Combine(temporaryRoot, OperatingSystem.IsWindows() ? "Wyrmwatch-operation-locks" : "Wyrmwatch-operation-" + key);
+        try
+        {
+            SafePaths.NoLinks(directory);
+            if (OperatingSystem.IsWindows()) Directory.CreateDirectory(directory);
+            else Directory.CreateDirectory(directory, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            var path = Path.Combine(directory, key + ".lock"); SafePaths.NoLinks(path);
+            return new FileStream(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+        }
+        catch (UnauthorizedAccessException error)
+        {
+            throw new IOException("Cannot access this installation's operation lock. Use the same account for the desktop and background manager, and check its folder permissions.", error);
+        }
         catch (IOException) { throw new IOException("Another Wyrmwatch instance is operating on this installation. Wait for it to finish."); }
     }
 }

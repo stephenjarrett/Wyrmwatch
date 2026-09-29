@@ -12,9 +12,12 @@ Coverage includes:
 - Switching between two disposable servers on the same port only after shutdown, reloaded ownership, and backup/restore isolation on both operating systems.
 - Selecting another connection without starting it, refusing starts while another saved server is running or unknown, disconnected-server checks, and maintenance restart enforcement.
 - An active operation blocking another action, schedule execution, connection edits, and agent shutdown.
+- Installation locks excluding duplicate work while allowing unrelated installations, including an unwritable legacy lock directory on Linux and actionable permission errors.
 - A real agent completing a scheduled backup after its desktop parent exits, retaining the next deadline across restart, and avoiding a duplicate backup.
 - Authorized HTTP backup/verify/restore, role and server scope restrictions, required restore confirmation, revocation, and owner-only import.
 - Windows ZIP and Linux TAR package safety, links/traversal/duplicates/truncation, interrupted downloads, executable permissions, and retention of the previous app.
 - Headless UI navigation, themes, focused form stability, and import review/confirmation invalidation after edits.
 
-These checks do not certify real Dragonwilds hosting. Before a release, separately smoke-test native minimize/restore rendering, HTTPS from another device, service startup across reboot, and the switch to a published update using disposable environments. Actual game compatibility and game-side save locations still require validation, especially on Linux. No real server should be used as an automated test fixture.
+Live portable-package checks on 29 September 2026 exercised Windows and Linux imports with external saves, HTTPS backup/verify/restore and access restrictions, agent restart with a fixture server still running, graceful shutdown, and switching two saved servers on the same UDP port. Linux was also checked as a non-root user after another account had created the legacy shared lock directory. A separate Linux container reached the Windows agent over TLS 1.3 with certificate and hostname validation enabled. These used disposable fake servers, with no real server changes.
+
+These checks do not certify real Dragonwilds hosting. Before a release, separately smoke-test native minimize/restore rendering, HTTPS browser access from a physical second device, service startup across reboot, and the switch to a published update using disposable environments. Native screen capture was unavailable during the live run. Actual game compatibility and game-side save locations still require validation, especially on Linux. No real server should be used as an automated test fixture.

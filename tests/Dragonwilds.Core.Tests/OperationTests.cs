@@ -5,6 +5,53 @@ namespace Dragonwilds.Core.Tests;
 
 public class OperationTests
 {
+    [Fact]
+    public void InstallationLeasesExcludeDuplicateWorkAndReleaseAfterDisposal()
+    {
+        using var fixture = new Fixture();
+        var temporaryRoot = Path.Combine(fixture.Root, "locks");
+        using (InstallationLease.Acquire(fixture.Profile.InstallPath, temporaryRoot))
+        {
+            Assert.Throws<IOException>(() => InstallationLease.Acquire(fixture.Profile.InstallPath, temporaryRoot));
+            using var unrelated = InstallationLease.Acquire(Path.Combine(fixture.Root, "other-server"), temporaryRoot);
+        }
+        using var reacquired = InstallationLease.Acquire(fixture.Profile.InstallPath, temporaryRoot);
+    }
+
+    [Fact]
+    public void UnixLeasesWorkWithAnUnwritableLegacyDirectoryAndReportPermissionFailures()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        using var fixture = new Fixture();
+        var temporaryRoot = Path.Combine(fixture.Root, "locks");
+        var legacy = Path.Combine(temporaryRoot, "Wyrmwatch-operation-locks");
+        Directory.CreateDirectory(legacy);
+        File.SetUnixFileMode(legacy, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+        string? lockDirectory = null;
+        try
+        {
+            using (var lease = InstallationLease.Acquire(fixture.Profile.InstallPath, temporaryRoot))
+            {
+                lockDirectory = Path.GetDirectoryName(lease.Name)!;
+                Assert.Equal(UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute, File.GetUnixFileMode(lockDirectory));
+            }
+            File.SetUnixFileMode(lockDirectory, UnixFileMode.None);
+            // Root bypasses filesystem permissions; CI and desktop users exercise this branch.
+            try { using var probe = File.Create(Path.Combine(lockDirectory, "permission-probe")); }
+            catch (UnauthorizedAccessException)
+            {
+                var error = Assert.Throws<IOException>(() => InstallationLease.Acquire(fixture.Profile.InstallPath, temporaryRoot));
+                Assert.Contains("same account", error.Message);
+            }
+            using var unrelated = InstallationLease.Acquire(Path.Combine(fixture.Root, "other-server"), temporaryRoot);
+        }
+        finally
+        {
+            File.SetUnixFileMode(legacy, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            if (lockDirectory is not null) File.SetUnixFileMode(lockDirectory, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+    }
+
     private sealed class PausedSteam : UnusedSteam
     {
         public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
