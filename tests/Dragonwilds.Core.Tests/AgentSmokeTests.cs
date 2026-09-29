@@ -65,7 +65,16 @@ public class AgentSmokeTests
             while (backups.List(agent.First).Count == 0) await Task.Delay(200, deadline.Token);
         Assert.False(agent.Process.HasExited); Assert.True((await agent.Admin.GetFromJsonAsync<AgentStatus>("api/status"))!.Background);
         var backup = Assert.Single(backups.List(agent.First)); await backups.VerifyAsync(backup.Path, agent.First);
-        var next = (await agent.Admin.GetFromJsonAsync<AgentStatus>("api/status"))!.Servers.Single(s => s.Id == agent.First.Id).Schedule.NextBackup;
+        DateTimeOffset? next;
+        using (var completed = new CancellationTokenSource(TimeSpan.FromSeconds(15)))
+            while (true)
+            {
+                var status = (await agent.Admin.GetFromJsonAsync<AgentStatus>("api/status", completed.Token))!;
+                next = status.Servers.Single(s => s.Id == agent.First.Id).Schedule.NextBackup;
+                // The archive is published before the scheduler persists its next deadline.
+                if (!status.Busy && next > DateTimeOffset.UtcNow) break;
+                await Task.Delay(100, completed.Token);
+            }
         await agent.RestartAsync(); await Task.Delay(3500);
         Assert.Equal(next, (await agent.Admin.GetFromJsonAsync<AgentStatus>("api/status"))!.Servers.Single(s => s.Id == agent.First.Id).Schedule.NextBackup);
         Assert.Single(backups.List(agent.First));
@@ -173,8 +182,15 @@ public class AgentSmokeTests
         }
         public async Task RestartAsync()
         {
-            (await Admin.PostAsync("admin/shutdown", null)).EnsureSuccessStatusCode();
-            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15)); await Process.WaitForExitAsync(timeout.Token);
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            while (true)
+            {
+                using var response = await Admin.PostAsync("admin/shutdown", null, timeout.Token);
+                if (response.StatusCode != HttpStatusCode.Conflict) { response.EnsureSuccessStatusCode(); break; }
+                // A new scheduler tick may acquire the operation gate after an idle observation.
+                await Task.Delay(100, timeout.Token);
+            }
+            await Process.WaitForExitAsync(timeout.Token);
             Process.Dispose(); Admin.Dispose(); Process = StartProcess();
             while (true)
             {
