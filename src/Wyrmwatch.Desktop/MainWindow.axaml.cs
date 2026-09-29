@@ -309,6 +309,8 @@ public partial class MainWindow : Window
     {
         if (agentTransition) return;
         if (downloadingApp) { model.Notice = "Finish or cancel the app download before quitting."; return; }
+        if (!Program.Demo && !Program.HeadlessTest)
+            try { await service!.RefreshAsync(); } catch (Exception error) { model.Notice = error.Message; return; }
         if (service?.Busy == true) { Show(); model.Notice = "An operation is still running. Wait for it to finish before quitting."; return; }
         if (!settings.BackgroundMode && service?.PersistentHost != true && model.Profiles.Any(p => p.AutoBackup || p.AutoUpdate))
             if (!await Confirm("Quit Wyrmwatch?", "Scheduled maintenance pauses while Wyrmwatch is closed. Your game server will keep running.", "Quit")) return;

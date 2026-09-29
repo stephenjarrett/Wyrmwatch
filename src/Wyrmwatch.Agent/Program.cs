@@ -17,7 +17,7 @@ var store = new JsonStore(workspace);
 var manager = new ManagerHost(store);
 var parentIndex = Array.IndexOf(args, "--parent");
 manager.PersistentHost = parentIndex < 0;
-if (parentIndex >= 0 && parentIndex + 2 < args.Length) manager.Attach(new(int.Parse(args[parentIndex + 1]), new DateTime(long.Parse(args[parentIndex + 2]), DateTimeKind.Utc), ""));
+if (parentIndex >= 0 && parentIndex + 2 < args.Length) manager.Attach(new(int.Parse(args[parentIndex + 1]), args[parentIndex + 2]));
 var remote = store.Read("remote.json", () => new RemoteSettings());
 var secret = AccessPolicy.NewSecret();
 var secretHash = AccessPolicy.Hash(secret);
@@ -115,7 +115,7 @@ WebApplication CreateHost(bool allowRemote)
     app.MapPut("/admin/preferences", async (ManagerSettings settings) => { await manager.SavePreferencesAsync(settings); return Results.Ok(); });
     app.MapPut("/admin/profiles", async (ServerProfile profile) => Results.Ok(await manager.SaveProfileAsync(profile)));
     app.MapDelete("/admin/profiles/{id}", async (string id) => { await manager.RemoveProfileAsync(id); return Results.Ok(); });
-    app.MapPost("/admin/attach", (ProcessIdentity identity) => { manager.Attach(identity); return Results.Ok(); });
+    app.MapPost("/admin/attach", (AgentParent identity) => { manager.Attach(identity); return Results.Ok(); });
     app.MapGet("/admin/remote", () => new RemoteInfo(remote, manager.RemoteAddress, certificate?.GetCertHashString(HashAlgorithmName.SHA256), remoteWarning));
     app.MapPut("/admin/remote", (RemoteSettings settings) =>
     {
@@ -154,7 +154,7 @@ catch (Exception error) when (manager.RemoteAddress is not null && error is IOEx
 }
 var localAddress = app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses.Single(a => a.StartsWith("http://", StringComparison.Ordinal));
 using var process = Process.GetCurrentProcess();
-store.Write("agent.json", new AgentEndpoint(process.Id, process.StartTime.ToUniversalTime().Ticks, localAddress, secret, ManagerHost.Version));
+store.Write("agent.json", new AgentEndpoint(process.Id, ProcessLifetime.Token(process), localAddress, secret, ManagerHost.Version));
 WorkspaceLease.Protect(Path.Combine(workspace, "agent.json"));
 var monitor = manager.MonitorAsync(app.Lifetime.StopApplication, app.Lifetime.ApplicationStopping);
 await app.WaitForShutdownAsync();

@@ -14,9 +14,9 @@ internal static class Program
     public static void Main(string[] args)
     {
         var parentIndex = Array.IndexOf(args, "--wait-for-parent");
-        if (parentIndex >= 0 && parentIndex + 2 < args.Length && int.TryParse(args[parentIndex + 1], out var parentId) && long.TryParse(args[parentIndex + 2], out var parentStart))
+        if (parentIndex >= 0 && parentIndex + 2 < args.Length && int.TryParse(args[parentIndex + 1], out var parentId))
         {
-            try { using var parent = System.Diagnostics.Process.GetProcessById(parentId); if (parent.StartTime.ToUniversalTime().Ticks == parentStart && !parent.WaitForExit(30000)) return; }
+            try { using var parent = System.Diagnostics.Process.GetProcessById(parentId); if (Dragonwilds.Core.ProcessLifetime.Token(parent) == args[parentIndex + 2] && !parent.WaitForExit(30000)) return; }
             catch (Exception error) when (error is ArgumentException or InvalidOperationException) { }
         }
         ApplyStartup = args.Contains("--apply-startup");

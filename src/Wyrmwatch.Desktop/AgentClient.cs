@@ -47,7 +47,7 @@ public sealed class AgentClient(string workspace) : IDisposable
                 var start = new ProcessStartInfo(executable) { UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = Path.GetDirectoryName(executable)! };
                 start.ArgumentList.Add("--workspace"); start.ArgumentList.Add(workspace);
                 using var owner = Process.GetCurrentProcess();
-                start.ArgumentList.Add("--parent"); start.ArgumentList.Add(owner.Id.ToString()); start.ArgumentList.Add(owner.StartTime.ToUniversalTime().Ticks.ToString());
+                start.ArgumentList.Add("--parent"); start.ArgumentList.Add(owner.Id.ToString()); start.ArgumentList.Add(ProcessLifetime.Token(owner));
                 using var process = Process.Start(start) ?? throw new IOException("Could not start the background manager.");
                 for (var attempt = 0; attempt < 100; attempt++)
                 {
@@ -64,15 +64,15 @@ public sealed class AgentClient(string workspace) : IDisposable
             http = new HttpClient { BaseAddress = address, Timeout = TimeSpan.FromMinutes(45) };
             http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", found.Secret);
             using var current = Process.GetCurrentProcess();
-            using var attached = await http.PostAsJsonAsync("admin/attach", new ProcessIdentity(current.Id, current.StartTime.ToUniversalTime(), Environment.ProcessPath ?? ""), token);
+            using var attached = await http.PostAsJsonAsync("admin/attach", new AgentParent(current.Id, ProcessLifetime.Token(current)), token);
             await CheckAsync(attached, token);
         }
         finally { connectionGate.Release(); }
     }
     private static bool Alive(AgentEndpoint endpoint)
     {
-        try { using var process = Process.GetProcessById(endpoint.ProcessId); return process.StartTime.ToUniversalTime().Ticks == endpoint.StartUtcTicks && process.ProcessName == "Wyrmwatch.Agent"; }
-        catch (Exception error) when (error is ArgumentException or InvalidOperationException or System.ComponentModel.Win32Exception) { return false; }
+        try { using var process = Process.GetProcessById(endpoint.ProcessId); return ProcessLifetime.Token(process) == endpoint.StartToken && process.ProcessName == "Wyrmwatch.Agent"; }
+        catch (Exception error) when (error is ArgumentException or InvalidOperationException or System.ComponentModel.Win32Exception or IOException or UnauthorizedAccessException) { return false; }
     }
     private static async Task CheckAsync(HttpResponseMessage response, CancellationToken token = default)
     {

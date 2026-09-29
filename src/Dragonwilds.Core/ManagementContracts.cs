@@ -3,7 +3,8 @@ using System.Text;
 
 namespace Dragonwilds.Core;
 
-public sealed record AgentEndpoint(int ProcessId, long StartUtcTicks, string Address, string Secret, string Version);
+public sealed record AgentEndpoint(int ProcessId, string StartToken, string Address, string Secret, string Version);
+public sealed record AgentParent(int Id, string StartToken);
 public sealed record ManagedServer(string Id, string Name, ServerSnapshot State, ScheduleState Schedule, string? Build)
 {
     public string[] Actions { get; init; } = ["start", "stop", "restart", "backup", "check", "update", "verify", "restore"];

@@ -60,7 +60,7 @@ public sealed record ServerSnapshot(bool Running, bool Accessible, int? Players,
 {
     public static ServerSnapshot Offline => new(false, true, 0, "Server is stopped", 0, 0, TimeSpan.Zero, []);
 }
-public sealed record ProcessIdentity(int Id, DateTime StartUtc, string Path);
+public sealed record ProcessIdentity(int Id, DateTime StartUtc, string Path, string? StartToken = null);
 public sealed record BuildStatus(string? Installed, string? Available)
 {
     public bool UpdateAvailable => Installed is not null && Available is not null && Installed != Available;

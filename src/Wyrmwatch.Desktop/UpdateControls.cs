@@ -60,7 +60,7 @@ public partial class MainWindow
             await service!.StopAgentAsync();
             using var current = Process.GetCurrentProcess();
             var launch = new ProcessStartInfo(preparedUpdate.Executable) { UseShellExecute = false, WorkingDirectory = preparedUpdate.Directory };
-            foreach (var argument in new[] { "--data-dir", Program.DataDirectory, "--wait-for-parent", current.Id.ToString(), current.StartTime.ToUniversalTime().Ticks.ToString(), "--apply-startup" }) launch.ArgumentList.Add(argument);
+            foreach (var argument in new[] { "--data-dir", Program.DataDirectory, "--wait-for-parent", current.Id.ToString(), ProcessLifetime.Token(current), "--apply-startup" }) launch.ArgumentList.Add(argument);
             using var child = Process.Start(launch) ?? throw new IOException("Could not open the updated manager.");
             exitRequested = true; closing.Cancel(); tray?.Dispose(); (Avalonia.Application.Current!.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime)?.Shutdown();
         }

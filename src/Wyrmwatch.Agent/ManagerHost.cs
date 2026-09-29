@@ -18,7 +18,7 @@ public sealed class ManagerHost
     private readonly ConcurrentQueue<string> log = new();
     private readonly object logLock = new();
     private readonly object grantsLock = new();
-    private ProcessIdentity? parent;
+    private AgentParent? parent;
     private Task? scheduler;
     private bool stopping;
     public string? RemoteAddress { get; set; }
@@ -34,7 +34,7 @@ public sealed class ManagerHost
         maintenance.Log += WriteLog;
     }
     public ManagerSettings Settings => store.Read("settings.json", () => new ManagerSettings());
-    public void Attach(ProcessIdentity identity) => parent = identity;
+    public void Attach(AgentParent identity) => parent = identity;
     public bool TryPrepareShutdown()
     {
         if (!operations.Wait(0)) return false;
@@ -169,9 +169,9 @@ public sealed class ManagerHost
         catch (Exception error) when (error is not OperationCanceledException) { WriteLog("Automation: " + error.Message); }
         finally { operations.Release(); }
     }
-    private static bool ParentAlive(ProcessIdentity parent)
+    private static bool ParentAlive(AgentParent parent)
     {
-        try { using var process = Process.GetProcessById(parent.Id); return process.StartTime.ToUniversalTime() == parent.StartUtc; }
-        catch (Exception error) when (error is ArgumentException or InvalidOperationException or System.ComponentModel.Win32Exception) { return false; }
+        try { using var process = Process.GetProcessById(parent.Id); return ProcessLifetime.Token(process) == parent.StartToken; }
+        catch (Exception error) when (error is ArgumentException or InvalidOperationException or System.ComponentModel.Win32Exception or IOException or UnauthorizedAccessException) { return false; }
     }
 }

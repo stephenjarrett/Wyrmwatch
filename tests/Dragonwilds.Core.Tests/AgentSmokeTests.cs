@@ -53,7 +53,7 @@ public class AgentSmokeTests
         using var second = agent.StartProcess();
         Assert.True(second.WaitForExit(10000)); Assert.NotEqual(0, second.ExitCode);
         Assert.True((await agent.Admin.PutAsJsonAsync("admin/preferences", new ManagerSettings { BackgroundMode = true })).IsSuccessStatusCode);
-        Assert.True((await agent.Admin.PostAsJsonAsync("admin/attach", new ProcessIdentity(int.MaxValue, DateTime.UtcNow, ""))).IsSuccessStatusCode);
+        Assert.True((await agent.Admin.PostAsJsonAsync("admin/attach", new AgentParent(int.MaxValue, "missing"))).IsSuccessStatusCode);
         await Task.Delay(3500);
         Assert.False(agent.Process.HasExited); Assert.True((await agent.Admin.GetFromJsonAsync<AgentStatus>("api/status"))!.Background);
         Assert.True((await agent.Admin.PutAsJsonAsync("admin/preferences", new ManagerSettings { BackgroundMode = false })).IsSuccessStatusCode);
@@ -83,7 +83,7 @@ public class AgentSmokeTests
             var start = new ProcessStartInfo(host) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
             start.ArgumentList.Add(Path.Combine(AppContext.BaseDirectory, "agent", "Wyrmwatch.Agent.dll"));
             using var owner = System.Diagnostics.Process.GetCurrentProcess();
-            foreach (var argument in new[] { "--workspace", Root, "--parent", owner.Id.ToString(), owner.StartTime.ToUniversalTime().Ticks.ToString() }) start.ArgumentList.Add(argument);
+            foreach (var argument in new[] { "--workspace", Root, "--parent", owner.Id.ToString(), ProcessLifetime.Token(owner) }) start.ArgumentList.Add(argument);
             return System.Diagnostics.Process.Start(start)!;
         }
         public static async Task<AgentFixture> StartAsync(RemoteSettings? remote = null)
