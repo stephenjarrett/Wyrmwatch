@@ -9,9 +9,15 @@
     <Style Selector="TextBlock.heading"><Setter Property="FontSize" Value="30" /><Setter Property="FontWeight" Value="SemiBold" /><Setter Property="LetterSpacing" Value="-0.7" /></Style>
     <Style Selector="TextBlock.section"><Setter Property="FontSize" Value="17" /><Setter Property="FontWeight" Value="SemiBold" /></Style>
     <Style Selector="Border.card"><Setter Property="Background" Value="{DynamicResource CardBrush}" /><Setter Property="BorderBrush" Value="{DynamicResource LineBrush}" /><Setter Property="BorderThickness" Value="1" /><Setter Property="CornerRadius" Value="12" /><Setter Property="Padding" Value="22" /></Style>
+    <Style Selector="Border.status-chip"><Setter Property="Background" Value="{DynamicResource ButtonSurfaceBrush}" /><Setter Property="BorderBrush" Value="{DynamicResource LineBrush}" /><Setter Property="BorderThickness" Value="1" /><Setter Property="CornerRadius" Value="20" /><Setter Property="Padding" Value="12,6" /></Style>
+    <Style Selector="Border.attention"><Setter Property="BorderBrush" Value="{DynamicResource AttentionBrush}" /><Setter Property="BorderThickness" Value="2" /></Style>
+    <Style Selector="TextBlock.field-error"><Setter Property="Foreground" Value="{DynamicResource AttentionBrush}" /><Setter Property="FontSize" Value="12" /></Style>
+    <Style Selector="Button:focus-visible"><Setter Property="BorderBrush" Value="{DynamicResource NavSelectedTextBrush}" /><Setter Property="BorderThickness" Value="2" /></Style>
     <Style Selector="Button"><Setter Property="CornerRadius" Value="7" /><Setter Property="Padding" Value="16,10" /><Setter Property="Cursor" Value="Hand" /><Setter Property="Background" Value="{DynamicResource ButtonSurfaceBrush}" /><Setter Property="Foreground" Value="{DynamicResource TextBrush}" /><Setter Property="BorderBrush" Value="{DynamicResource LineBrush}" /></Style>
     <Style Selector="Button.primary"><Setter Property="Background" Value="#8A78F0" /><Setter Property="Foreground" Value="#111019" /><Setter Property="FontWeight" Value="SemiBold" /></Style>
     <Style Selector="Button.subtle"><Setter Property="Background" Value="Transparent" /><Setter Property="BorderBrush" Value="{DynamicResource LineBrush}" /><Setter Property="BorderThickness" Value="1" /></Style>
+    <Style Selector="Button:pointerover"><Setter Property="Opacity" Value="0.96" /></Style>
+    <Style Selector="Button:pressed"><Setter Property="Opacity" Value="0.92" /></Style>
     <Style Selector="Button:pointerover /template/ ContentPresenter#PART_ContentPresenter"><Setter Property="Background" Value="{DynamicResource ButtonHoverBrush}" /><Setter Property="Foreground" Value="{DynamicResource TextBrush}" /><Setter Property="BorderBrush" Value="{DynamicResource LineBrush}" /></Style>
     <Style Selector="Button:pressed /template/ ContentPresenter#PART_ContentPresenter"><Setter Property="Background" Value="{DynamicResource ButtonPressedBrush}" /><Setter Property="Foreground" Value="{DynamicResource TextBrush}" /></Style>
     <Style Selector="Button.primary:pointerover /template/ ContentPresenter#PART_ContentPresenter"><Setter Property="Background" Value="#A596F7" /><Setter Property="Foreground" Value="#111019" /></Style>
@@ -31,10 +37,12 @@
     <ResourceDictionary>
       <ResourceDictionary.ThemeDictionaries>
         <ResourceDictionary x:Key="Dark">
+          <SolidColorBrush x:Key="AttentionBrush" Color="#F2BB85" />
           <SolidColorBrush x:Key="NavSelectedBrush" Color="#302A4A" /><SolidColorBrush x:Key="NavSelectedTextBrush" Color="#CABEFF" /><SolidColorBrush x:Key="WorkspaceStatusBrush" Color="#89C6A9" />
           <SolidColorBrush x:Key="CanvasBrush" Color="#18191F" /><SolidColorBrush x:Key="SidebarBrush" Color="#121318" /><SolidColorBrush x:Key="CardBrush" Color="#202128" /><SolidColorBrush x:Key="LineBrush" Color="#32333D" /><SolidColorBrush x:Key="TextBrush" Color="#EEEFF4" /><SolidColorBrush x:Key="MutedBrush" Color="#9B9EAF" /><SolidColorBrush x:Key="ButtonSurfaceBrush" Color="#292B35" /><SolidColorBrush x:Key="ButtonHoverBrush" Color="#353846" /><SolidColorBrush x:Key="ButtonPressedBrush" Color="#242630" />
         </ResourceDictionary>
         <ResourceDictionary x:Key="Light">
+          <SolidColorBrush x:Key="AttentionBrush" Color="#8A4410" />
           <SolidColorBrush x:Key="NavSelectedBrush" Color="#DED8F5" /><SolidColorBrush x:Key="NavSelectedTextBrush" Color="#49358A" /><SolidColorBrush x:Key="WorkspaceStatusBrush" Color="#2D6A4F" />
           <SolidColorBrush x:Key="CanvasBrush" Color="#F3F4F8" /><SolidColorBrush x:Key="SidebarBrush" Color="#E9EBF2" /><SolidColorBrush x:Key="CardBrush" Color="#FFFFFF" /><SolidColorBrush x:Key="LineBrush" Color="#D9DCE7" /><SolidColorBrush x:Key="TextBrush" Color="#202131" /><SolidColorBrush x:Key="MutedBrush" Color="#5F6377" /><SolidColorBrush x:Key="ButtonSurfaceBrush" Color="#F3F4F8" /><SolidColorBrush x:Key="ButtonHoverBrush" Color="#E7E9F1" /><SolidColorBrush x:Key="ButtonPressedBrush" Color="#DBDEEA" />
         </ResourceDictionary>

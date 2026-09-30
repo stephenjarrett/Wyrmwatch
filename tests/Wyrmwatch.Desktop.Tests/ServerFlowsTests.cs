@@ -167,7 +167,7 @@ public class ServerFlowsTests
         Assert.Equal("alpha progress", File.ReadAllText(alphaWorld));
         Assert.All(betaBackups, b => Assert.True(File.Exists(b.Path)));
 
-        window.ShowPage(WorkspacePage.Servers);
+        window.ShowPage(WorkspacePage.ServerSettings);
         Click(window, Field<Button>(window, "RemoveServerButton")); await Accept(window, "Disconnect server");
         await Until(() => model.Profiles.Count == 1);
         Assert.Equal(created.Id, model.SelectedProfile!.Id);
@@ -236,7 +236,9 @@ public class ServerFlowsTests
         Click(dialog, Field<Button>(dialog, "CreateNext"));
         await Until(() => Field<TextBlock>(dialog, "CreateMessage").Text!.Contains("changed after review"));
         Assert.Empty(fixture.Store.Read("settings.json", () => new ManagerSettings()).Servers); Assert.Equal(0, fixture.Steam.Installs);
-        Click(dialog, Field<Button>(dialog, "CreateBack")); Click(dialog, Field<Button>(dialog, "CreateNext"));
+        Click(dialog, Field<CheckBox>(dialog, "ImportSourceStopped")); Click(dialog, Field<Button>(dialog, "CreateNext"));
+        await Until(() => Field<TextBox>(dialog, "CreateManagedLocations").IsEffectivelyVisible);
+        Click(dialog, Field<Button>(dialog, "CreateNext"));
         await Until(() => Equals(Field<Button>(dialog, "CreateNext").Content, "Import World"));
         Click(dialog, Field<Button>(dialog, "CreateNext"));
         await Until(() => Equals(Field<Button>(dialog, "CreateNext").Content, "Close"));
@@ -296,7 +298,7 @@ public class ServerFlowsTests
         Assert.True(Field<TextBox>(dialog, "CreateManagedLocations").IsReadOnly);
         Capture(dialog, "import-world-access.png"); Click(dialog, Field<Button>(dialog, "CreateNext"));
         await Until(() => Equals(Field<Button>(dialog, "CreateNext").Content, "Import World"));
-        Assert.Contains("embedded name", Field<TextBlock>(dialog, "CreateReview").Text);
+        Assert.Contains("embedded world name", Field<TextBlock>(dialog, "ReviewImportNote").Text);
         Capture(dialog, "import-world-review.png");
     }
     private static T Field<T>(Window window, string name) where T : Control => window.GetLogicalDescendants().OfType<T>().Single(c => c.Name == name);
@@ -316,7 +318,7 @@ public class ServerFlowsTests
     }
     private static void Click(Window window, Control control)
     {
-        Assert.True(control.IsEffectivelyEnabled); control.BringIntoView(); window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
+        Assert.True(control.IsEffectivelyEnabled); window.UpdateLayout(); Dispatcher.UIThread.RunJobs(); control.BringIntoView(); window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
         AvaloniaHeadlessPlatform.ForceRenderTimerTick();
         var point = control.TranslatePoint(new Point(control.Bounds.Width / 2, control.Bounds.Height / 2), window)!.Value;
         window.MouseDown(point, MouseButton.Left); window.MouseUp(point, MouseButton.Left); Dispatcher.UIThread.RunJobs();

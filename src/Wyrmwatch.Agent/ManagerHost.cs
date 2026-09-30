@@ -282,7 +282,7 @@ public sealed class ManagerHost
     public Task SavePreferencesAsync(ManagerSettings preferences) => ChangeSettingsAsync(settings => settings with
     {
         Theme = preferences.Theme, CloseToTray = preferences.CloseToTray, LaunchAtLogin = preferences.LaunchAtLogin,
-        BackgroundMode = preferences.BackgroundMode, Language = preferences.Language,
+        BackgroundMode = preferences.BackgroundMode, Language = preferences.Language, ReduceMotion = preferences.ReduceMotion,
         SelectedServerId = preferences.SelectedServerId
     });
     private async Task ChangeSettingsAsync(Func<ManagerSettings, ManagerSettings> change)

@@ -186,9 +186,9 @@ public class SmokeTests
             await dialog.AdvanceAsync();
             Assert.Equal("carter-s-new-world", Field<TextBox>(dialog, "CreateFolderName").Text);
             await dialog.AdvanceAsync();
-            var review = Field<TextBlock>(dialog, "CreateReview").Text!;
-            Assert.Contains(Path.Combine(root, "WyrmwatchServers", "carter-s-new-world"), review);
-            Assert.Contains(Path.Combine(root, "WyrmwatchServers", "carter-s-new-world", "RSDragonwilds", "Saved"), review);
+            var review = string.Join("\n", dialog.GetLogicalDescendants().OfType<TextBlock>().Where(t => t.IsEffectivelyVisible).Select(t => t.Text));
+            Assert.Equal(Path.Combine(root, "WyrmwatchServers", "carter-s-new-world"), Field<TextBlock>(dialog, "ReviewInstallPath").Text);
+            Assert.Equal(Path.Combine(root, "WyrmwatchServers", "carter-s-new-world", "RSDragonwilds", "Saved"), Field<TextBlock>(dialog, "ReviewSavedPath").Text);
             Assert.Contains("automatic updates off", review);
             Assert.DoesNotContain(Field<TextBox>(dialog, "CreateAdminPassword").Text!, review);
             dialog.Close();

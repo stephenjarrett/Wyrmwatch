@@ -191,6 +191,21 @@
     "Ui.55e15394161b": "Create a server or import an existing installation.",
     "Ui.03b28fa07a51": "Live backups contain only data already saved to disk.",
     "Ui.dffd71e2a9ba": "Restore requires a stopped server. Existing data is backed up when present and retained separately. Each recovery point shows whether it includes world files or configuration only.",
-    "Ui.d43fb8a961ff": "App settings"
+    "Ui.d43fb8a961ff": "App settings",
+    "Ui.e268c297c037": "Activity details",
+    "Ui.e8722f00fcd5": "Dismiss message",
+    "Ui.c3a13e66b67a": "Create a server",
+    "Ui.a80faf939cff": "Import a world",
+    "Ui.2cd2ff9fbd16": "Connection display name",
+    "Ui.1f280fc17b55": "Disconnect this connection",
+    "Ui.a0cfd16df1e7": "Disconnect stops Wyrmwatch's scheduled maintenance. Game processes, installation, world files and backups stay in place. A retained connection record continues to protect its save location.",
+    "Ui.0028647e0e6b": "Advertised server name",
+    "Ui.cd56c254de19": "Verify that the correct world loads, then create a backup before enabling automation. Automatic maintenance stays off until you save these settings.",
+    "Ui.495daa646bda": "Create your first recovery point",
+    "Ui.bab2723b7a9b": "Verify your world in game first. A backup records the current files; it does not prove game compatibility.",
+    "Ui.3a34a6ac581d": "Create first backup",
+    "Ui.297ef4c79b4b": "Reduce motion",
+    "Ui.c12d62ac8052": "Keeps feedback immediate and turns off optional hover transitions. Enabled by default.",
+    "Ui.d0dd93a5b58d": "Automatic maintenance is opt-in. Save changes to apply these settings. Verify your world before enabling maintenance."
   }
 }
