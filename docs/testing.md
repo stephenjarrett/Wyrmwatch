@@ -1,0 +1,33 @@
+# Focused verification
+
+Run `dotnet test tests/Dragonwilds.Core.Tests -c Release` and `dotnet test tests/Wyrmwatch.Desktop.Tests -c Release`. CI runs both suites on Windows and Ubuntu and publishes portable builds.
+
+All server fixtures live in unique temporary directories. Process tests launch the small `FixtureServer` executable supplied by this repository, bind a loopback UDP port, and accept graceful shutdown signals. They never launch SteamCMD or a real game server. Cleanup matches each fixture's exact executable path before terminating any leftover test process.
+
+Coverage includes:
+
+- Continuous empty-server observation, unknown-player deferral, failed updates, and persisted schedules.
+- Verified backups, cancellation, locked source files, retention after failure, restore staging, and rollback after a folder-swap failure.
+- Shared-port saved connections, overlapping-folder protection, read-only import with external saves, reconnection to previous backups, and rejection before unsafe configuration writes.
+- Switching between two disposable servers on the same port only after shutdown, reloaded ownership, and backup/restore isolation on both operating systems.
+- Selecting another connection without starting it, refusing starts while another saved server is running or unknown, disconnected-server checks, and maintenance restart enforcement.
+- An active operation blocking another action, schedule execution, connection edits, and agent shutdown.
+- Installation locks excluding duplicate work while allowing unrelated installations, including an unwritable legacy lock directory on Linux and actionable permission errors.
+- A real agent completing a scheduled backup after its desktop parent exits, retaining the next deadline across restart, and avoiding a duplicate backup.
+- Authorized HTTP backup/verify/restore, role and server scope restrictions, required restore confirmation, revocation, and owner-only import.
+- Windows ZIP and Linux TAR package safety, links/traversal/duplicates/truncation, interrupted downloads, executable permissions, and retention of the previous app.
+- Headless UI navigation, themes, selected-navigation text contrast, focused form stability, and import review/confirmation invalidation after edits.
+
+Live portable-package checks on 29 September 2026 exercised Windows and Linux imports with external saves, HTTPS backup/verify/restore and access restrictions, agent restart with a fixture server still running, graceful shutdown, and switching two saved servers on the same UDP port. Linux was also checked as a non-root user after another account had created the legacy shared lock directory. A separate Linux container reached the Windows agent over TLS 1.3 with certificate and hostname validation enabled. These used disposable fake servers, with no real server changes.
+
+After reconnecting the active Windows desktop, native capture and interaction worked. The desktop checks exercised navigation, a focused unsaved field across background refreshes, light/dark themes, minimize/restore, fixture start and graceful stop, backup selection and verification, operation history, and the no-new-release state. Captured restore frames preserved the expected colors and layout; point-in-time screenshots cannot exclude a very brief flash. The light-theme selected-navigation contrast defect found in that run has a focused regression test.
+
+The complete native Windows import flow subsequently passed using a fresh disposable workspace: typed launcher selection, explicit external save and backup paths, folder review, confirmation, and import. All 194 installation/save fixture files retained their SHA-256 hashes, no backup directory was created, no fixture process started, and both automation flags remained off. A second typed selection without resetting the automation session reached the already-connected guard and left exactly one saved connection. See [Windows desktop automation](windows-desktop-testing.md) for the helper's modal-targeting workaround; this is not a fix to the helper itself.
+
+A separate Ubuntu 24.04 WSL2 distribution subsequently passed all 21 portable-package assertions as a regular user. The native X11 desktop was exercised under Xvfb/Openbox: rendering, GTK file selection, reviewed external-save import, start/graceful stop with two recovery points, light/dark themes, and minimize/restore. The Debian package passed fresh installation, refusal to replace/remove a running manager, successful reinstall after shutdown, and removal with preferences/world files preserved. This tests Linux desktop behavior on a virtual display, not every graphics driver or desktop environment.
+
+The Linux user service was installed without starting it, explicitly enabled for the test account, and checked for fixture preservation across service stop/restart. Restarting only the isolated distribution with lingering enabled started the service again without the desktop. An overdue backup ran once, the next deadline persisted, and the world was unchanged. An initial harness attempt put its workspace in `/tmp`, which Ubuntu clears on startup; the corrected restart fixture used a dedicated disposable directory on persistent storage.
+
+Windows installer lifecycle checks run on disposable GitHub-hosted runners: complete payload, fresh installation, refusal to replace a running agent, reinstallation, removal, and preservation of a workspace sentinel. `scripts/test-windows-service.ps1` adds a low-privilege LocalService fixture check restricted to hosted CI; it refuses to run on a user's machine.
+
+These checks do not certify real Dragonwilds hosting. Remaining deployment checks include a physical second device's browser/trust/firewall setup, Windows service startup across a full OS reboot, and the switch to a published update. Actual game compatibility and game-side save locations still require validation, especially on Linux. No real server should be used as an automated test fixture.

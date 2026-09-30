@@ -1,0 +1,74 @@
+name: Release portable builds
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: read
+jobs:
+  package:
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            runtime: win-x64
+          - os: ubuntu-latest
+            runtime: linux-x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Validate release version
+        shell: pwsh
+        run: |
+          [xml]$props = Get-Content Directory.Build.props
+          if ($env:GITHUB_REF_NAME -cne "v$($props.Project.PropertyGroup.Version)") { throw 'Tag must match the project version' }
+      - name: Test and build
+        shell: pwsh
+        run: ./scripts/build.ps1 -Runtime ${{ matrix.runtime }}
+      - name: Package with source and notices
+        run: python scripts/package.py ${{ matrix.runtime }}
+      - name: Install Linux packaging tools
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y desktop-file-utils
+      - name: Build installer
+        run: python scripts/package-installers.py ${{ matrix.runtime }}
+      - name: Verify Windows installer lifecycle
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/test-windows-installer.ps1 -Installer (Get-ChildItem dist/*-setup.exe).FullName
+      - name: Verify low-privilege Windows service
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          dotnet publish tests/FixtureServer -c Release -r win-x64 --self-contained true -o dist/service-fixture
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./scripts/test-windows-service.ps1 -ApplicationDirectory dist/win-x64 -FixtureDirectory dist/service-fixture
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.runtime }}
+          path: |
+            dist/Wyrmwatch-*.zip
+            dist/Wyrmwatch-*.tar.gz
+            dist/Wyrmwatch-*.exe
+            dist/Wyrmwatch-*.deb
+            dist/Wyrmwatch-*.sha256
+          if-no-files-found: error
+  publish:
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          merge-multiple: true
+          path: packages
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: gh release create "$GITHUB_REF_NAME" packages/* --verify-tag --title "Wyrmwatch $GITHUB_REF_NAME" --notes-file "docs/releases/$GITHUB_REF_NAME.md"

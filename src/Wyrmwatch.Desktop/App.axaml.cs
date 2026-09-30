@@ -7,7 +7,7 @@ namespace Wyrmwatch.Desktop;
 
 public partial class App : Application
 {
-    public override void Initialize() => AvaloniaXamlLoader.Load(this);
+    public override void Initialize() { AvaloniaXamlLoader.Load(this); Localization.Apply(Localization.English); }
     public override void OnFrameworkInitializationCompleted()
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)

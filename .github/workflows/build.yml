@@ -1,4 +1,4 @@
-name: MVP checks and builds
+name: Checks and portable builds
 on:
   push:
     branches: [main, 'sjarrett/**']
@@ -9,6 +9,7 @@ permissions:
 jobs:
   build:
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: windows-latest
@@ -31,7 +32,35 @@ jobs:
       - name: Build portable app
         shell: pwsh
         run: ./scripts/build.ps1 -Runtime ${{ matrix.runtime }} -SkipTests
+      - name: Install Linux packaging tools
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y desktop-file-utils
+      - name: Package downloads and installer
+        run: |
+          python scripts/package.py ${{ matrix.runtime }}
+          python scripts/package-installers.py ${{ matrix.runtime }}
+      - name: Verify Windows installer lifecycle
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/test-windows-installer.ps1 -Installer (Get-ChildItem dist/*-setup.exe).FullName
+      - name: Verify low-privilege Windows service
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          dotnet publish tests/FixtureServer -c Release -r win-x64 --self-contained true -o dist/service-fixture
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./scripts/test-windows-service.ps1 -ApplicationDirectory dist/win-x64 -FixtureDirectory dist/service-fixture
       - uses: actions/upload-artifact@v4
         with:
           name: Wyrmwatch-${{ matrix.runtime }}
           path: dist/${{ matrix.runtime }}/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: downloads-${{ matrix.runtime }}
+          path: |
+            dist/Wyrmwatch-*.zip
+            dist/Wyrmwatch-*.tar.gz
+            dist/Wyrmwatch-*.exe
+            dist/Wyrmwatch-*.deb
+            dist/Wyrmwatch-*.sha256
+          if-no-files-found: error

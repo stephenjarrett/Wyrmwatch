@@ -29,7 +29,7 @@ public sealed class LinuxRuntime(JsonStore store) : IServerRuntime
                     var path = process.MainModule?.FileName;
                     if (path is null) { accessible = false; continue; }
                     if (!SafePaths.Within(path, p.InstallPath)) continue;
-                    found.Add(new(process.Id, process.StartTime.ToUniversalTime(), path)); memory += process.WorkingSet64; cpu += process.TotalProcessorTime.TotalMilliseconds;
+                    found.Add(new(process.Id, process.StartTime.ToUniversalTime(), path, ProcessLifetime.Token(process))); memory += process.WorkingSet64; cpu += process.TotalProcessorTime.TotalMilliseconds;
                 }
                 catch (System.ComponentModel.Win32Exception) { accessible = false; }
                 catch (InvalidOperationException) { }
@@ -42,10 +42,11 @@ public sealed class LinuxRuntime(JsonStore store) : IServerRuntime
             var known = registered.Where(IsSame).ToList();
             foreach (var candidate in found)
             {
+                if (known.Any(i => SameIdentity(i, candidate))) continue;
                 var current = candidate.Id; var visited = new HashSet<int>();
                 while (current > 1 && visited.Add(current))
                 {
-                    if (known.Any(i => i.Id == current && i.StartUtc <= candidate.StartUtc)) { if (!known.Contains(candidate)) known.Add(candidate); break; }
+                    if (known.Any(i => i.Id == current && i.StartUtc <= candidate.StartUtc)) { known.Add(candidate); break; }
                     try { var stat = File.ReadAllText($"/proc/{current}/stat"); var fields = stat[(stat.LastIndexOf(')') + 2)..].Split(' '); current = int.Parse(fields[1]); }
                     catch { break; }
                 }
@@ -61,9 +62,10 @@ public sealed class LinuxRuntime(JsonStore store) : IServerRuntime
     }
     private static bool IsSame(ProcessIdentity identity)
     {
-        try { using var p = Process.GetProcessById(identity.Id); return p.StartTime.ToUniversalTime() == identity.StartUtc && p.MainModule?.FileName == identity.Path; }
+        try { using var p = Process.GetProcessById(identity.Id); return ProcessLifetime.Token(p) == identity.StartToken && p.MainModule?.FileName == identity.Path; }
         catch { return false; }
     }
+    private static bool SameIdentity(ProcessIdentity a, ProcessIdentity b) => a.Id == b.Id && a.StartToken is not null && a.StartToken == b.StartToken && a.Path == b.Path;
     public async Task StartAsync(ServerProfile p, CancellationToken token = default)
     {
         p.Validate(); var state = await InspectAsync(p, token);
@@ -75,7 +77,7 @@ public sealed class LinuxRuntime(JsonStore store) : IServerRuntime
         var start = new ProcessStartInfo(shell ? "/bin/bash" : p.Launcher) { WorkingDirectory = p.InstallPath, UseShellExecute = false };
         if (shell) start.ArgumentList.Add(p.Launcher); start.ArgumentList.Add("-log"); start.ArgumentList.Add($"-Port={p.Port}");
         using var process = Process.Start(start) ?? throw new IOException("Could not start server.");
-        var identity = new ProcessIdentity(process.Id, process.StartTime.ToUniversalTime(), process.MainModule!.FileName!);
+        var identity = new ProcessIdentity(process.Id, process.StartTime.ToUniversalTime(), process.MainModule!.FileName!, ProcessLifetime.Token(process));
         await gate.WaitAsync(token);
         try { owned[p.Id] = [identity]; store.Write("owned-processes.json", owned); }
         finally { gate.Release(); }
@@ -87,7 +89,7 @@ public sealed class LinuxRuntime(JsonStore store) : IServerRuntime
         var state = await InspectAsync(p, token);
         if (!state.Accessible) throw new IOException("Cannot safely inspect game processes.");
         if (!state.Running) return;
-        if (!owned.TryGetValue(p.Id, out var known) || state.Processes.Any(i => !known.Contains(i))) throw new IOException("This server was started elsewhere. Stop it with its existing controls before starting it through Wyrmwatch.");
+        if (!owned.TryGetValue(p.Id, out var known) || state.Processes.Any(i => !known.Any(k => SameIdentity(k, i)))) throw new IOException("This server was started elsewhere. Stop it with its existing controls before starting it through Wyrmwatch.");
         foreach (var identity in state.Processes.OrderByDescending(i => i.StartUtc))
         {
             if (!IsSame(identity)) throw new IOException("Server identity changed during shutdown.");

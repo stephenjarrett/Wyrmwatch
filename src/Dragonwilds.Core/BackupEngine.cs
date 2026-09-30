@@ -158,6 +158,7 @@ public sealed class BackupEngine
             }
         }
         if (!await isStopped()) throw new IOException("The server started during restore preparation. Nothing was replaced.");
+        token.ThrowIfCancellationRequested();
         // Move whole directories so newer saves cannot silently win over the restored world.
         // Originals are retained in recovery, and rollback preserves all staged data on any failure.
         var moved = new List<string>(); var installed = new List<string>();

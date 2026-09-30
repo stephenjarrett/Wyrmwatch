@@ -12,6 +12,8 @@ Wyrmwatch's original project material is licensed under AGPL-3.0-only. The compo
 | SkiaSharp and native assets | 3.119.4 | [MIT](licenses/third-party/SkiaSharp-LICENSE.txt), [third-party notices](licenses/third-party/SkiaSharp-NOTICES.txt) |
 | HarfBuzzSharp and native assets | 8.3.1.3 | [MIT](licenses/third-party/HarfBuzzSharp-LICENSE.txt), [third-party notices](licenses/third-party/HarfBuzzSharp-NOTICES.txt) |
 | .NET runtime in self-contained builds | 10.0.x; resolved by the publishing SDK | [MIT](licenses/third-party/dotnet-LICENSE.txt), [third-party notices](licenses/third-party/dotnet-NOTICES.txt) |
+| ASP.NET Core runtime in the background manager | 10.0.x; resolved by the publishing SDK | [MIT](licenses/third-party/aspnetcore-LICENSE.txt), [third-party notices](licenses/third-party/aspnetcore-NOTICES.txt) |
+| Microsoft.Extensions.Hosting.WindowsServices and System.ServiceProcess.ServiceController | 10.0.12 | [MIT](licenses/third-party/dotnet-LICENSE.txt), [third-party notices](licenses/third-party/windows-services-NOTICES.txt) |
 
 Avalonia package metadata also records: Copyright 2013-2026 © The AvaloniaUI Project. MicroCom package metadata records: Copyright 2021 © Nikita Tsukanov. Tmds.DBus package metadata records: Tom Deseyn. The original notices are retained in the linked license files.
 
@@ -24,6 +26,8 @@ Avalonia package metadata also records: Copyright 2013-2026 © The AvaloniaUI Pr
 - ANGLE: `LICENSE` from the `Avalonia.Angle.Windows.Natives` NuGet package listed above.
 - SkiaSharp / HarfBuzzSharp: `LICENSE.txt` and `THIRD-PARTY-NOTICES.txt` from the respective managed and native-asset NuGet packages. The Windows and Linux native packages supply identical notices for these versions.
 - .NET: `LICENSE.TXT` and `THIRD-PARTY-NOTICES.TXT` from the .NET 10.0.12 runtime packages. The packaging script includes the publishing runtime's own notices alongside these reference copies when present.
+- ASP.NET Core: the license and notices from `Microsoft.AspNetCore.App.Runtime` 10.0.12; portable packages use the exact publishing runtime's notices.
+- Windows service hosting: both packages declare MIT, copyright Microsoft Corporation, and supply identical third-party notices. Their source revision is [dotnet/dotnet 95017c7](https://github.com/dotnet/dotnet/tree/95017c711e6afc1085133d440e42b4bd78155701).
 
 Only the native components for the selected platform are included in a portable build. NuGet restore metadata in each project's `obj/project.assets.json` lists the resolved dependency versions. Development/test tools are not part of the portable application and retain their own package licenses.
 

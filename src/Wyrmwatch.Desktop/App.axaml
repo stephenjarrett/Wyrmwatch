@@ -15,15 +15,18 @@
     <Style Selector="ComboBox"><Setter Property="CornerRadius" Value="7" /><Setter Property="MinHeight" Value="38" /></Style>
     <Style Selector="ListBox.nav"><Setter Property="Background" Value="Transparent" /><Setter Property="BorderThickness" Value="0" /></Style>
     <Style Selector="ListBox.nav ListBoxItem"><Setter Property="CornerRadius" Value="8" /><Setter Property="Padding" Value="14,12" /><Setter Property="Margin" Value="0,3" /><Setter Property="FontSize" Value="14" /></Style>
-    <Style Selector="ListBox.nav ListBoxItem:selected /template/ ContentPresenter"><Setter Property="Background" Value="#302A4A" /><Setter Property="Foreground" Value="#CABEFF" /></Style>
+    <Style Selector="ListBox.nav ListBoxItem:selected /template/ ContentPresenter"><Setter Property="Background" Value="{DynamicResource NavSelectedBrush}" /><Setter Property="Foreground" Value="{DynamicResource NavSelectedTextBrush}" /></Style>
+    <Style Selector="ListBox.nav ListBoxItem:selected TextBlock"><Setter Property="Foreground" Value="{DynamicResource NavSelectedTextBrush}" /></Style>
   </Application.Styles>
   <Application.Resources>
     <ResourceDictionary>
       <ResourceDictionary.ThemeDictionaries>
         <ResourceDictionary x:Key="Dark">
+          <SolidColorBrush x:Key="NavSelectedBrush" Color="#302A4A" /><SolidColorBrush x:Key="NavSelectedTextBrush" Color="#CABEFF" /><SolidColorBrush x:Key="WorkspaceStatusBrush" Color="#89C6A9" />
           <SolidColorBrush x:Key="CanvasBrush" Color="#18191F" /><SolidColorBrush x:Key="SidebarBrush" Color="#121318" /><SolidColorBrush x:Key="CardBrush" Color="#202128" /><SolidColorBrush x:Key="LineBrush" Color="#32333D" /><SolidColorBrush x:Key="TextBrush" Color="#EEEFF4" /><SolidColorBrush x:Key="MutedBrush" Color="#9B9EAF" /><SolidColorBrush x:Key="HeroBrush" Color="#252236" />
         </ResourceDictionary>
         <ResourceDictionary x:Key="Light">
+          <SolidColorBrush x:Key="NavSelectedBrush" Color="#DED8F5" /><SolidColorBrush x:Key="NavSelectedTextBrush" Color="#49358A" /><SolidColorBrush x:Key="WorkspaceStatusBrush" Color="#2D6A4F" />
           <SolidColorBrush x:Key="CanvasBrush" Color="#F3F4F8" /><SolidColorBrush x:Key="SidebarBrush" Color="#E9EBF2" /><SolidColorBrush x:Key="CardBrush" Color="#FFFFFF" /><SolidColorBrush x:Key="LineBrush" Color="#D9DCE7" /><SolidColorBrush x:Key="TextBrush" Color="#202131" /><SolidColorBrush x:Key="MutedBrush" Color="#5F6377" /><SolidColorBrush x:Key="HeroBrush" Color="#EAE5FF" />
         </ResourceDictionary>
       </ResourceDictionary.ThemeDictionaries>

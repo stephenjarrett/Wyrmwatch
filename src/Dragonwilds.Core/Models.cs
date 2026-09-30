@@ -23,6 +23,7 @@ public sealed record ServerProfile
     public string LogPath => Path.Combine(SavedPath, "Logs", "RSDragonwilds.log");
     public void Validate()
     {
+        if (string.IsNullOrEmpty(Id) || Id.Length > 80 || Id.Any(c => !char.IsAsciiLetterOrDigit(c) && c is not ('-' or '_'))) throw new ArgumentException("The server connection ID is invalid.");
         if (string.IsNullOrWhiteSpace(Name)) throw new ArgumentException("Give your server a name.");
         if (string.IsNullOrWhiteSpace(InstallPath) || !Path.IsPathFullyQualified(InstallPath)) throw new ArgumentException("Choose an absolute server installation folder.");
         var root = Path.GetPathRoot(Path.GetFullPath(InstallPath));
@@ -44,10 +45,14 @@ public sealed record ServerProfile
 public sealed record ManagerSettings
 {
     public List<ServerProfile> Servers { get; init; } = [];
+    public List<ServerProfile> DisconnectedServers { get; init; } = [];
     public string? SelectedServerId { get; init; }
     public string Theme { get; init; } = "Dark";
     public bool CloseToTray { get; init; } = true;
     public bool LaunchAtLogin { get; init; }
+    public bool BackgroundMode { get; init; }
+    public string Language { get; init; } = "en";
+    public bool CheckAppUpdates { get; init; }
 }
 
 public sealed record ServerSnapshot(bool Running, bool Accessible, int? Players, string ActivityReason,
@@ -55,7 +60,7 @@ public sealed record ServerSnapshot(bool Running, bool Accessible, int? Players,
 {
     public static ServerSnapshot Offline => new(false, true, 0, "Server is stopped", 0, 0, TimeSpan.Zero, []);
 }
-public sealed record ProcessIdentity(int Id, DateTime StartUtc, string Path);
+public sealed record ProcessIdentity(int Id, DateTime StartUtc, string Path, string? StartToken = null);
 public sealed record BuildStatus(string? Installed, string? Available)
 {
     public bool UpdateAvailable => Installed is not null && Available is not null && Installed != Available;

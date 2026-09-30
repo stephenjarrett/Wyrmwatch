@@ -53,6 +53,20 @@ public class MaintenanceTests
         var service = new MaintenanceService(runtime, steam, engine, new(f.Root));
         Assert.Contains("200", await service.UpdateAsync(f.Profile)); Assert.Equal(1, steam.Installs); Assert.Equal(0, runtime.Starts); Assert.Single(engine.List(f.Profile));
     }
+    [Fact] public async Task EmptyWindowUsesStableProcessIdentityButResetsForAReplacementProcess()
+    {
+        using var f = new Fixture(); var clock = new Clock(); var runtime = new Runtime { State = ServerSnapshot.Offline with { Running = true } };
+        var service = new MaintenanceService(runtime, new Steam(), new(), new(f.Root), clock);
+        for (var i = 0; i <= 12; i++)
+        {
+            runtime.State = runtime.State with { Processes = [new(42, DateTime.UtcNow.AddTicks(i), f.Profile.Launcher, "same-kernel-start")] };
+            await service.ObserveAsync(f.Profile); clock.Now = clock.Now.AddSeconds(5);
+        }
+        Assert.Null(service.Deferral(f.Profile, runtime.State, clock.Now));
+        runtime.State = runtime.State with { Processes = [new(42, DateTime.UtcNow, f.Profile.Launcher, "new-kernel-start")] };
+        await service.ObserveAsync(f.Profile);
+        Assert.NotNull(service.Deferral(f.Profile, runtime.State, clock.Now));
+    }
     [Fact] public async Task OnlineUpdateTakesStoppedBackupAndRestartsAfterVerification()
     {
         using var f = new Fixture(); var clock = new Clock(); var runtime = new Runtime { State = ServerSnapshot.Offline with { Running = true } }; var steam = new Steam(); var engine = new BackupEngine();
