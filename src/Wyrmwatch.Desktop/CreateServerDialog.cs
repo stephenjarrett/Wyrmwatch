@@ -28,6 +28,7 @@ public sealed class CreateServerDialog : Window
     private readonly NumericUpDown port = new() { Name = "CreatePort", Value = 7777, Minimum = 1024, Maximum = 65535, FormatString = "0" };
     private readonly TextBlock stepLabel = Hint("");
     private readonly TextBlock summary = new() { Name = "CreateReview", TextWrapping = TextWrapping.Wrap };
+    private readonly StackPanel preparedReview = new() { Name = "PreparedSetupReview", Spacing = 12, IsVisible = false };
     private readonly TextBlock message = new() { Name = "CreateMessage", TextWrapping = TextWrapping.Wrap };
     private readonly ProgressBar progress = new() { IsIndeterminate = true, IsVisible = false, Height = 4 };
     private readonly Button next = new() { Name = "CreateNext", Content = "Continue", Classes = { "primary" } };
@@ -42,7 +43,7 @@ public sealed class CreateServerDialog : Window
     private readonly CancellationTokenSource lifetime = new();
     private readonly ComboBox preparedPicker = new() { Name = "PreparedSetupPicker", HorizontalAlignment = HorizontalAlignment.Stretch };
     private readonly TextBlock preparedStatus = new() { Name = "PreparedSetupStatus", TextWrapping = TextWrapping.Wrap, Classes = { "muted" } };
-    private readonly Button newSetup = new() { Name = "PreparedSetupNew", Content = "Start a new setup", IsVisible = false };
+    private readonly Button newSetup = new() { Name = "PreparedSetupNew", Content = "Setup options", IsVisible = false, Classes = { "subtle" } };
     private readonly Expander preparedRecovery = new() { Name = "PreparedSetupRecovery", Header = "Prepared setup recovery", HorizontalAlignment = HorizontalAlignment.Stretch, IsVisible = false };
     private RecoveredSetup? recoveredSetup;
     private bool closed, selectingPrepared;
@@ -96,10 +97,11 @@ public sealed class CreateServerDialog : Window
         source.PropertyChanged += (_, change) => { if (change.Property == TextBox.TextProperty) { sourceStopped.IsChecked = false; reviewedSource = null; ToolTip.SetTip(source, source.Text); } };
         UpdateLocations();
         var pageGrid = new Grid(); foreach (var page in pages) pageGrid.Children.Add(page);
-        preparedRecovery.Content = new StackPanel { Spacing = 10, Children = { preparedStatus, preparedPicker, newSetup } };
+        pages[2].Children.Add(preparedReview);
+        preparedRecovery.Content = new StackPanel { Spacing = 10, Children = { preparedStatus, preparedPicker } };
         var body = new StackPanel { Margin = new Thickness(28, 24, 28, 16), Spacing = 18, Children = { stepLabel, preparedRecovery, pageGrid, progress, message } };
         scroll = new ScrollViewer { Content = body, HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled };
-        var footer = new StackPanel { Margin = new Thickness(28, 12, 28, 24), Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Spacing = 10, Children = { cancel, back, next } };
+        var footer = new StackPanel { Margin = new Thickness(28, 12, 28, 24), Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Spacing = 10, Children = { cancel, newSetup, back, next } };
         Grid.SetRow(footer, 1);
         Content = new Grid { RowDefinitions = new RowDefinitions("*,Auto"), Children = { scroll, footer } };
         serverName.PropertyChanged += (_, change) =>
@@ -161,14 +163,10 @@ public sealed class CreateServerDialog : Window
         source.Text = recovered.Source?.SourcePath ?? "";
         foreach (var field in new[] { serverName, folder, world, owner, admin, password, source }) field.IsReadOnly = true;
         port.IsEnabled = sourceStopped.IsEnabled = false;
-        newSetup.IsVisible = true; preparedRecovery.IsVisible = true; preparedRecovery.IsExpanded = false;
+        newSetup.IsVisible = true; preparedRecovery.IsVisible = false; preparedRecovery.IsExpanded = false;
         preparedStatus.Text = "This workspace's setup receipt and recorded files verified. Original settings are retained. Resume saves only the connection; the copied snapshot can be recovered even if its original source has changed or disappeared.";
-        var p = recovered.Profile;
-        summary.Text = $"Prepared server: {p.Name}\nOwner Player ID: {owner.Text}\nUDP port: {p.Port}\n\nInstall: {p.InstallPath}\n\nSave data: {p.SavedPath}\n\nBackups: {p.BackupPath}\n\nAdmin password: original retained\nWorld access: {(string.IsNullOrEmpty(password.Text) ? "no password required" : "password required")}\n\n" +
-            (recovered.Source is null ? "Fresh-world setup. The world is created on first Start." : $"Verified prepared world: {recovered.Source.FileName}\nOriginal source is not read or copied again. Verify game compatibility after Start.") +
-            "\n\nResume saves the connection only. Existing files stay unchanged; the server must be stopped and automation remains off.";
+        ShowPreparedReview(recovered);
         step = 2; UpdateLocations(); UpdatePage();
-        ((TextBlock)pages[2].Children[2]).Text = "Registers this workspace's verified prepared installation. No download, world copy or game start occurs.";
     }
     private async Task SelectPreparedSetupAsync(string installPath)
     {
@@ -182,6 +180,9 @@ public sealed class CreateServerDialog : Window
     {
         if (working || finished) return;
         ++preparedReviewVersion; recoveredSetup = null; reviewed = null; reviewedSource = null;
+        preparedReview.IsVisible = false; summary.IsVisible = true; pages[2].Children[2].IsVisible = true;
+        ((TextBlock)pages[2].Children[0]).Text = "Review setup";
+        preparedRecovery.IsVisible = preparedRecovery.IsExpanded = preparedPicker.Items.Count > 0;
         foreach (var field in new[] { serverName, folder, world, owner, admin, password, source }) field.IsReadOnly = false;
         port.IsEnabled = sourceStopped.IsEnabled = true;
         serverName.Text = "My Dragonwilds server"; world.Text = "My World"; owner.Text = "";
@@ -196,6 +197,47 @@ public sealed class CreateServerDialog : Window
         var field = new StackPanel { Spacing = 6, Children = { new TextBlock { Text = label, FontWeight = FontWeight.SemiBold }, input } };
         if (help is not null) field.Children.Add(Hint(help));
         return field;
+    }
+    private void ShowPreparedReview(RecoveredSetup recovered)
+    {
+        summary.IsVisible = false; pages[2].Children[2].IsVisible = false;
+        ((TextBlock)pages[2].Children[0]).Text = "Resume prepared setup";
+        preparedReview.Children.Clear();
+        var status = new StackPanel { Spacing = 6, Children =
+        {
+            new TextBlock { Name = "PreparedVerifiedStatus", Text = "VERIFIED · READY TO RESUME", Classes = { "eyebrow", "setup-status" } },
+            new TextBlock { Text = "Your prepared files are safe to reconnect", FontWeight = FontWeight.SemiBold, FontSize = 17, TextWrapping = TextWrapping.Wrap },
+            Hint("Resume saves the connection only. No download, world copy or game start. Automation stays off.")
+        }};
+        preparedReview.Children.Add(ReviewCard(status));
+        var details = new StackPanel { Spacing = 8, Children =
+        {
+            new TextBlock { Text = "Server & world", Classes = { "section" } },
+            ReviewDetail("Server", recovered.Profile.Name, "PreparedServerName"),
+            ReviewDetail("World save", recovered.Source?.FileName ?? "Fresh world on first Start", "PreparedWorldName"),
+            ReviewDetail("Owner Player ID", owner.Text ?? "", "PreparedOwnerId"),
+            ReviewDetail("Game port", $"{recovered.Profile.Port} · UDP", "PreparedGamePort"),
+            ReviewDetail("Access", string.IsNullOrEmpty(password.Text) ? "No world password · admin password retained" : "World & admin passwords retained", "PreparedAccess"),
+            new TextBlock { Name = "PreparedWorldNote", Text = recovered.Source is null ? "Original settings are retained. The world will be created on first Start." : "Original source is not read or copied again. Check the copied world's game compatibility after Start.", TextWrapping = TextWrapping.Wrap, FontSize = 13, Classes = { "muted" } }
+        }};
+        preparedReview.Children.Add(ReviewCard(details));
+        preparedReview.Children.Add(ReviewCard(new StackPanel { Spacing = 8, Children =
+        {
+            new TextBlock { Text = "Managed storage", Classes = { "section" } },
+            ReviewDetail("Server files", recovered.Profile.InstallPath, "PreparedInstallPath", true),
+            ReviewDetail("Save data", recovered.Profile.SavedPath, "PreparedSavedPath", true),
+            ReviewDetail("Backups", recovered.Profile.BackupPath, "PreparedBackupPath", true)
+        }}));
+        preparedReview.IsVisible = true;
+    }
+    private static Border ReviewCard(Control content) => new() { Classes = { "card" }, Padding = new Thickness(16), Child = content };
+    private static Grid ReviewDetail(string label, string value, string name, bool path = false)
+    {
+        var text = new TextBlock { Name = name, Text = value, TextWrapping = TextWrapping.Wrap, FontSize = path ? 12 : 14 };
+        if (path) text.FontFamily = new FontFamily("Cascadia Mono, Consolas, monospace");
+        ToolTip.SetTip(text, value);
+        Grid.SetColumn(text, 1);
+        return new Grid { ColumnDefinitions = new ColumnDefinitions("120,*"), Children = { Hint(label), text } };
     }
     private static StackPanel Page(string title, params Control[] controls)
     {
@@ -259,6 +301,7 @@ public sealed class CreateServerDialog : Window
                 progress.IsVisible = true; next.Content = "Resuming.";
                 await preparedActions.Resume(current, text => message.Text = text);
                 finished = true; stepLabel.Text = "SETUP RECOVERED";
+                preparedReview.IsVisible = false; summary.IsVisible = true; newSetup.IsVisible = false;
                 summary.Text = current.Profile.Name + " is connected and stopped. Its prepared world and settings were preserved. Close this window and Start only when ready; automation remains off.";
                 message.Text = "Connection saved. No download, copy or game start occurred.";
                 return;
@@ -311,6 +354,7 @@ public sealed class CreateServerDialog : Window
             {
                 stepLabel.Text = "SETUP NEEDS ATTENTION";
                 ((TextBlock)pages[2].Children[0]).Text = "Setup did not finish";
+                preparedReview.IsVisible = false; summary.IsVisible = true;
                 summary.Text = "Setup did not finish. Existing files were preserved. Check the message below and Activity for details. Reopen the wizard to review any prepared setup, or use Back to adjust a failed download.\n\nDestination: " + (reviewed?.Profile.InstallPath ?? recoveredSetup?.Profile.InstallPath);
             }
         }

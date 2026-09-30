@@ -5,6 +5,7 @@
     <Style Selector="TextBlock"><Setter Property="Foreground" Value="{DynamicResource TextBrush}" /></Style>
     <Style Selector="TextBlock.muted"><Setter Property="Foreground" Value="{DynamicResource MutedBrush}" /></Style>
     <Style Selector="TextBlock.eyebrow"><Setter Property="Foreground" Value="{DynamicResource MutedBrush}" /><Setter Property="FontSize" Value="11" /><Setter Property="FontWeight" Value="SemiBold" /><Setter Property="LetterSpacing" Value="1.4" /></Style>
+    <Style Selector="TextBlock.setup-status"><Setter Property="Foreground" Value="{DynamicResource WorkspaceStatusBrush}" /></Style>
     <Style Selector="TextBlock.heading"><Setter Property="FontSize" Value="30" /><Setter Property="FontWeight" Value="SemiBold" /><Setter Property="LetterSpacing" Value="-0.7" /></Style>
     <Style Selector="TextBlock.section"><Setter Property="FontSize" Value="17" /><Setter Property="FontWeight" Value="SemiBold" /></Style>
     <Style Selector="Border.card"><Setter Property="Background" Value="{DynamicResource CardBrush}" /><Setter Property="BorderBrush" Value="{DynamicResource LineBrush}" /><Setter Property="BorderThickness" Value="1" /><Setter Property="CornerRadius" Value="12" /><Setter Property="Padding" Value="22" /></Style>
