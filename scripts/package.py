@@ -15,7 +15,7 @@ folder = output / args.runtime
 executable = 'Wyrmwatch.exe' if args.runtime == 'win-x64' else 'Wyrmwatch'
 agent = 'agent/Wyrmwatch.Agent.exe' if args.runtime == 'win-x64' else 'agent/Wyrmwatch.Agent'
 required = [executable, agent, 'Wyrmwatch.Core.dll', 'Wyrmwatch.Platform.dll',
-            'agent/Wyrmwatch.Core.dll', 'agent/Wyrmwatch.Platform.dll',
+            'Wyrmwatch.Agent.dll', 'Wyrmwatch.Agent.runtimeconfig.json', 'retired-package-files.json',
             'LICENSE', 'LICENSE.txt', 'NOTICE',
             'SOURCE.md', 'THIRD-PARTY-NOTICES.md', 'Wyrmwatch-source.zip',
             'licenses/third-party/aspnetcore-LICENSE.txt', 'licenses/third-party/aspnetcore-NOTICES.txt',
@@ -29,6 +29,14 @@ for name in required:
 for file in folder.rglob('Dragonwilds.*'):
     if file.is_file():
         raise RuntimeError(f'Stale application file: {file}. Publish to an empty output folder before packaging.')
+if any(folder.rglob('*.pdb')):
+    raise RuntimeError('Debugging symbols must not be shipped in application downloads')
+if sorted(p.name for p in (folder / 'agent').iterdir()) != [Path(agent).name]:
+    raise RuntimeError('The agent folder must contain only its shared-runtime launcher')
+# Catch unexpected payload growth before publishing a download.
+payload_size = sum(p.stat().st_size for p in folder.rglob('*') if p.is_file())
+if payload_size > 180 * 1024 * 1024:
+    raise RuntimeError(f'Application payload exceeds 180 MiB: {payload_size:,} bytes')
 with zipfile.ZipFile(folder / 'Wyrmwatch-source.zip') as source:
     if source.testzip() is not None:
         raise RuntimeError('Damaged source archive')

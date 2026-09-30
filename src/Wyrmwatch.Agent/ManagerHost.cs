@@ -25,7 +25,8 @@ public sealed class ManagerHost
     public ManagerHost(JsonStore store, IServerRuntime? runtime = null, ISteamClient? steam = null)
     {
         this.store = store;
-        var helper = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "Wyrmwatch.Signal.exe"));
+        var helper = Path.Combine(AppContext.BaseDirectory, "Wyrmwatch.Signal.exe");
+        if (!File.Exists(helper)) helper = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "Wyrmwatch.Signal.exe"));
         this.runtime = new SingleServerRuntime(runtime ?? (OperatingSystem.IsWindows() ? new WindowsRuntime(store, helper) : new LinuxRuntime(store)), () =>
         {
             var settings = Settings;

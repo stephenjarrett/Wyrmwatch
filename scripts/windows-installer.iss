@@ -7,6 +7,9 @@
 #ifndef PackageDirectory
   #error PackageDirectory is required
 #endif
+#ifndef RetiredFilesInclude
+  #error RetiredFilesInclude is required
+#endif
 
 [Setup]
 AppId={{6B862A4A-E39B-4A55-811F-2611E1B585F2}
@@ -32,6 +35,8 @@ WizardStyle=modern
 CloseApplications=no
 RestartApplications=no
 SetupLogging=yes
+
+#include RetiredFilesInclude
 
 [Files]
 Source: "{#BuildDirectory}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs

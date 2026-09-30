@@ -15,6 +15,12 @@ if((Install-Package) -ne 0){throw 'Fresh installation failed'}
 foreach($file in @('Wyrmwatch.exe','agent/Wyrmwatch.Agent.exe','LICENSE','Wyrmwatch-source.zip','unins000.exe')) {
     if(-not (Test-Path -LiteralPath (Join-Path $app $file))){throw "Installer omitted $file"}
 }
+# Simulate files from the old layout; upgrades remove exact packaged paths only.
+foreach($oldFile in @('libSkiaSharp.pdb','agent/System.Private.CoreLib.dll','agent/Wyrmwatch.Agent.runtimeconfig.json')) {
+    Set-Content -LiteralPath (Join-Path $app $oldFile) -Value 'obsolete package fixture'
+}
+$unrelated=Join-Path $app 'agent/preserve-user-notes.txt'
+Set-Content -LiteralPath $unrelated -Value 'preserve-unrelated-file'
 $hash=(Get-FileHash -LiteralPath (Join-Path $app 'Wyrmwatch.exe')).Hash
 $agent=Start-Process -FilePath (Join-Path $app 'agent/Wyrmwatch.Agent.exe') -ArgumentList '--workspace',('"'+$workspace+'"') -WindowStyle Hidden -PassThru
 try {
@@ -27,6 +33,7 @@ try {
     if(-not $endpoint -or $endpoint.ProcessId -ne $agent.Id){throw 'Installed agent did not start'}
     if((Install-Package) -eq 0){throw 'Installer replaced a running manager'}
     if((Get-FileHash -LiteralPath (Join-Path $app 'Wyrmwatch.exe')).Hash -ne $hash){throw 'Blocked installation changed the app'}
+    if(-not (Test-Path -LiteralPath (Join-Path $app 'libSkiaSharp.pdb'))){throw 'Blocked upgrade removed a file'}
     $headers=@{Authorization='Bearer '+$endpoint.Secret}
     Invoke-RestMethod -Method Post -Uri ($endpoint.Address+'/admin/shutdown') -Headers $headers | Out-Null
     if(-not $agent.WaitForExit(15000)){throw 'Agent did not shut down normally'}
@@ -35,8 +42,12 @@ try {
     $headers=$null
 }
 if((Install-Package) -ne 0){throw 'Reinstallation after clean shutdown failed'}
+foreach($oldFile in @('libSkiaSharp.pdb','agent/System.Private.CoreLib.dll','agent/Wyrmwatch.Agent.runtimeconfig.json')) {
+    if(Test-Path -LiteralPath (Join-Path $app $oldFile)){throw "Upgrade left obsolete package file: $oldFile"}
+}
+if((Get-Content -LiteralPath $unrelated -Raw).Trim() -ne 'preserve-unrelated-file'){throw 'Upgrade changed an unrelated file'}
 $uninstall=Start-Process -FilePath (Join-Path $app 'unins000.exe') -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -WindowStyle Hidden -PassThru -Wait
 if($uninstall.ExitCode -ne 0){throw 'Uninstallation failed'}
 if(Test-Path -LiteralPath (Join-Path $app 'Wyrmwatch.exe')){throw 'Uninstaller left packaged executable'}
 if((Get-Content -LiteralPath $sentinel -Raw).Trim() -ne 'preserve-user-data'){throw 'Uninstaller modified user data'}
-Write-Host "PASS: fresh install, complete payload, running-agent refusal, reinstall, uninstall, user-data preservation. Fixture: $testRoot"
+Write-Host "PASS: fresh install, shared-runtime agent, running-agent refusal, obsolete-file cleanup, reinstall, uninstall, unrelated-file and user-data preservation. Fixture: $testRoot"

@@ -5,4 +5,12 @@
     <ProjectReference Include="../Wyrmwatch.Core/Wyrmwatch.Core.csproj" />
     <ProjectReference Include="../Wyrmwatch.Platform/Wyrmwatch.Platform.csproj" />
   </ItemGroup>
+  <!-- Keep the service/desktop launch path while using the runtime beside the UI. -->
+  <Target Name="CreateSharedRuntimeLauncher" AfterTargets="Publish" Condition="'$(SharedRuntimeLauncher)' == 'true'">
+    <MakeDir Directories="$(PublishDir)agent" />
+    <CreateAppHost AppHostSourcePath="$(AppHostSourcePath)"
+                   AppHostDestinationPath="$(PublishDir)agent/Wyrmwatch.Agent$(_NativeExecutableExtension)"
+                   AppBinaryName="../Wyrmwatch.Agent.dll"
+                   IntermediateAssembly="$(TargetPath)" />
+  </Target>
 </Project>

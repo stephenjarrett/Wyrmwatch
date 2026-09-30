@@ -61,7 +61,7 @@ Config edits require the server to be stopped, preserve unrelated sections/admin
 
 Download the [latest release](https://github.com/stephenjarrett/Wyrmwatch/releases/latest). Windows has a per-user setup `.exe`; Ubuntu/Debian has a `.deb` package. Portable ZIP and TAR downloads remain available. See [installation, upgrades, and removal](docs/installing.md).
 
-The portable builds include the .NET runtime. Extract the entire build folder; do not copy just the executable.
+The portable builds include one .NET runtime shared by the desktop and background manager, so no separate .NET installation is needed. Debugging symbols are excluded from downloads. Extract the entire build folder; do not copy just the executable.
 
 Windows: run `Wyrmwatch.exe`. Linux desktop: `chmod +x Wyrmwatch agent/Wyrmwatch.Agent`, then `./Wyrmwatch`. Linux requires an X11/XWayland desktop and the [Avalonia system dependencies](https://docs.avaloniaui.net/docs/supported-platforms). SteamCMD requires its distribution-specific 32-bit runtime libraries. Linux builds are provided as previews until verified with a real Linux game installation.
 
