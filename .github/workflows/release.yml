@@ -38,6 +38,13 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: ./scripts/test-windows-installer.ps1 -Installer (Get-ChildItem dist/*-setup.exe).FullName
+      - name: Verify low-privilege Windows service
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          dotnet publish tests/FixtureServer -c Release -r win-x64 --self-contained true -o dist/service-fixture
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./scripts/test-windows-service.ps1 -ApplicationDirectory dist/win-x64 -FixtureDirectory dist/service-fixture
       - uses: actions/upload-artifact@v4
         with:
           name: release-${{ matrix.runtime }}
@@ -54,6 +61,7 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           pattern: release-*
@@ -63,4 +71,4 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
-        run: gh release create "$GITHUB_REF_NAME" packages/* --verify-tag --generate-notes
+        run: gh release create "$GITHUB_REF_NAME" packages/* --verify-tag --title "Wyrmwatch $GITHUB_REF_NAME" --notes-file "docs/releases/$GITHUB_REF_NAME.md"

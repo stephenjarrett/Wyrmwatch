@@ -49,6 +49,8 @@ Config edits require the server to be stopped, preserve unrelated sections/admin
 
 ## Run
 
+Download the [latest release](https://github.com/stephenjarrett/Wyrmwatch/releases/latest). Windows has a per-user setup `.exe`; Ubuntu/Debian has a `.deb` package. Portable ZIP and TAR downloads remain available. See [installation, upgrades, and removal](docs/installing.md).
+
 The portable builds include the .NET runtime. Extract the entire build folder; do not copy just the executable.
 
 Windows: run `Wyrmwatch.exe`. Linux desktop: `chmod +x Wyrmwatch agent/Wyrmwatch.Agent`, then `./Wyrmwatch`. Linux requires an X11/XWayland desktop and the [Avalonia system dependencies](https://docs.avaloniaui.net/docs/supported-platforms). SteamCMD requires its distribution-specific 32-bit runtime libraries. Linux builds are provided as previews until verified with a real Linux game installation.
@@ -92,4 +94,4 @@ dotnet run --project src/Wyrmwatch.Desktop -- --demo
 
 Focused checks cover backup integrity and restore preservation, update failures and deferral, configuration preservation, a disposable Windows console shutdown, remote authorization and revocation, background lifecycle, app-package integrity, and desktop navigation/theme/language flows. All game-data fixtures are temporary. No tests use a real server. GitHub Actions runs the same checks and packages both targets. Publishing a `v*` tag invokes the release workflow; it rejects a tag that does not match the project version.
 
-`Dragonwilds.Core` is independent of the UI. `Dragonwilds.Windows` contains both process adapters (Windows and Linux); `Dragonwilds.Signal` is the Windows console helper. `Wyrmwatch.Agent` runs maintenance and the optional remote dashboard. `Wyrmwatch.Desktop` contains the Avalonia interface. Linux support still needs desktop and game-process validation on Linux; compiling a Linux target is not a substitute for that check.
+`Dragonwilds.Core` is independent of the UI. `Dragonwilds.Windows` contains both process adapters (Windows and Linux); `Dragonwilds.Signal` is the Windows console helper. `Wyrmwatch.Agent` runs maintenance and the optional remote dashboard. `Wyrmwatch.Desktop` contains the Avalonia interface. Linux desktop, package, service restart, and process control checks run against disposable fixtures; actual game hosting still requires separate validation.
