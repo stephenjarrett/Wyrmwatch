@@ -129,6 +129,47 @@ public sealed class ManagerHost
         if (request.Source is null) throw new ArgumentException("Choose and review a world save before importing.");
         return ProvisionServerAsync(new(request.Profile, request.Configuration), request.Source);
     }
+    public IReadOnlyList<PreparedSetupCandidate> PreparedSetups(string? parentFolder = null)
+    {
+        var saved = Settings.Servers.Concat(Settings.DisconnectedServers).Select(p => p.Id).ToHashSet(StringComparer.Ordinal);
+        return ManagedSetupRecovery.ListCandidates(store).Where(p => !saved.Contains(p.OriginalId) &&
+            (string.IsNullOrEmpty(parentFolder) || SafePaths.Same(Path.GetDirectoryName(p.InstallPath)!, parentFolder))).ToArray();
+    }
+    public Task<RecoveredSetup> ReviewSetupAsync(ReviewSetupRequest request, CancellationToken token = default) => ManagedSetupRecovery.VerifyAsync(request.InstallPath, store, token);
+    public async Task<ServerProfile> ResumeSetupAsync(ResumeSetupRequest request, CancellationToken token = default)
+    {
+        if (!await operations.WaitAsync(0, token)) throw new InvalidOperationException("Another server operation is still running.");
+        try
+        {
+            var reviewed = await ManagedSetupRecovery.VerifyAsync(request.InstallPath, store, token);
+            if (!string.Equals(reviewed.ReceiptToken, request.ReceiptToken, StringComparison.Ordinal)) throw new IOException("The prepared setup changed after review. Review it again before resuming.");
+            var profile = reviewed.Profile with { AutoBackup = false, AutoUpdate = false };
+            using var lease = ServerOperationLease.Acquire(profile);
+            // Recheck files and the workspace's receipt proof while holding both resources.
+            reviewed = await ManagedSetupRecovery.VerifyAsync(request.InstallPath, store, token);
+            if (!string.Equals(reviewed.ReceiptToken, request.ReceiptToken, StringComparison.Ordinal)) throw new IOException("The prepared setup changed after review. Review it again before resuming.");
+            var settings = Settings; var known = settings.Servers.Concat(settings.DisconnectedServers).ToArray();
+            if (known.Any(p => p.Id == profile.Id)) throw new ArgumentException("This server connection ID is already saved. Use its existing connection instead.");
+            if (known.Any(p => string.Equals(p.Name, profile.Name, StringComparison.OrdinalIgnoreCase))) throw new ArgumentException("A saved server already uses this name. Resolve the connection conflict before resuming this prepared setup.");
+            ServerConnections.Validate(profile, known);
+            backups.EnsureNoPendingRestore(profile);
+            var state = await runtime.InspectAsync(profile, token);
+            if (!state.Accessible || state.Running) throw new IOException("Confirm that the prepared server is stopped before saving its connection. Its files were preserved.");
+            // Registration only: the verified world/configuration/installation are never rewritten.
+            token.ThrowIfCancellationRequested();
+            store.Write("settings.json", settings with { Servers = [.. settings.Servers, profile], SelectedServerId = profile.Id });
+            snapshots[profile.Id] = ServerSnapshot.Offline;
+            ClearSetupReceiptAfterRegistration(profile);
+            WriteLog($"{profile.Name}: prepared setup connection saved; files preserved, stopped, automation off.");
+            return profile;
+        }
+        finally { operations.Release(); }
+    }
+    private void ClearSetupReceiptAfterRegistration(ServerProfile profile)
+    {
+        try { ManagedSetupRecovery.ClearAfterRegistration(profile, store); }
+        catch (Exception error) { WriteLog("The server connection was saved, but its setup receipt could not be cleared: " + error.Message); }
+    }
     private async Task CheckImportSourceAsync(WorldImportPlan source)
     {
         var current = await WorldImport.InspectAsync(source.SourcePath);
@@ -179,6 +220,7 @@ public sealed class ManagerHost
                 WriteLog($"{profile.Name}: copying reviewed world; source files are preserved.");
                 await WorldImport.CopyAsync(source, Path.Combine(stagedProfile.SavedPath, "SaveGames"));
             }
+            await ManagedSetupRecovery.WriteAsync(profile, stagedProfile, source, store);
             SafePaths.NoLinks(profile.InstallPath);
             // Move fails if another app created the target. Never replace an existing folder.
             Directory.Move(staging, profile.InstallPath);
@@ -186,6 +228,7 @@ public sealed class ManagerHost
             var settings = Settings;
             store.Write("settings.json", settings with { Servers = [.. settings.Servers, profile], SelectedServerId = profile.Id });
             registered = true;
+            ClearSetupReceiptAfterRegistration(profile);
             snapshots[profile.Id] = ServerSnapshot.Offline;
             WriteLog($"{profile.Name}: {(source is null ? "created" : "world imported")} and configured; stopped, automation off.");
             return profile;
@@ -193,7 +236,7 @@ public sealed class ManagerHost
         catch (Exception error)
         {
             var detail = published && !registered
-                ? $" Completed setup files were preserved at {profile.InstallPath}, but this workspace did not save the server connection. Do not retry into that existing folder. Inspect the retained setup before choosing a different new server folder/name for another setup attempt."
+                ? $" Completed setup files were preserved at {profile.InstallPath}, but this workspace did not save the server connection. Do not retry creation into that existing folder. Open Create or Import a world and choose Resume prepared setup to review and finish saving this connection without downloading or copying its world again."
                 : staging is not null && Directory.Exists(staging) ? $" Downloaded files were preserved at {staging}. You can retry with the same new server name." : "";
             WriteLog("Create server failed: " + error.Message + detail);
             throw new IOException(error.Message + detail, error);

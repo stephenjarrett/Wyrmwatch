@@ -99,11 +99,11 @@ public sealed class AgentClient(string workspace) : IDisposable
         if (body is not null) request.Content = JsonContent.Create(body, body.GetType());
         using var response = await http!.SendAsync(request); await CheckAsync(response);
     }
-    public async Task<T> PostAsync<T>(string route, object body)
+    public async Task<T> PostAsync<T>(string route, object body, CancellationToken token = default)
     {
-        await EnsureStartedAsync();
-        using var response = await http!.PostAsync(route, JsonContent.Create(body, body.GetType())); await CheckAsync(response);
-        return await response.Content.ReadFromJsonAsync<T>() ?? throw new IOException("The manager returned an empty response.");
+        await EnsureStartedAsync(token);
+        using var response = await http!.PostAsync(route, JsonContent.Create(body, body.GetType()), token); await CheckAsync(response, token);
+        return await response.Content.ReadFromJsonAsync<T>(token) ?? throw new IOException("The manager returned an empty response.");
     }
     public async Task RefreshAsync(CancellationToken token = default)
     {
@@ -142,6 +142,9 @@ public sealed class AgentClient(string workspace) : IDisposable
     public Task<ServerProfile> ImportProfileAsync(ServerProfile profile) => PostAsync<ServerProfile>("admin/import", profile);
     public Task<ServerProfile> CreateServerAsync(ServerCreationPlan plan) => PostAsync<ServerProfile>("admin/create", new CreateServerRequest(plan.Profile, plan.Configuration.ToDictionary()));
     public Task<ServerProfile> ImportWorldAsync(ServerCreationPlan plan, WorldImportPlan source, bool sourceStoppedConfirmed) => PostAsync<ServerProfile>("admin/import-world", new WorldImportRequest(plan.Profile, plan.Configuration.ToDictionary(), source, sourceStoppedConfirmed));
+    public async Task<IReadOnlyList<PreparedSetupCandidate>> ListPreparedSetupsAsync(CancellationToken token = default) => await GetAsync<List<PreparedSetupCandidate>>("admin/prepared-setups", token);
+    public Task<RecoveredSetup> ReviewPreparedSetupAsync(string installPath, CancellationToken token = default) => PostAsync<RecoveredSetup>("admin/review-setup", new ReviewSetupRequest(installPath), token);
+    public Task<ServerProfile> ResumePreparedSetupAsync(string installPath, string receiptToken) => PostAsync<ServerProfile>("admin/resume-setup", new ResumeSetupRequest(installPath, receiptToken));
     public IReadOnlyList<ManagedServer> Servers => status.Servers;
     public async Task StopAgentAsync()
     {

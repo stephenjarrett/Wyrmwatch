@@ -14,6 +14,8 @@ public sealed record AgentStatus(bool Busy, string Version, List<ManagedServer> 
 public sealed record ServerAction(string Action, string? Archive = null, Dictionary<string, string>? Values = null, string? Confirmation = null);
 public sealed record CreateServerRequest(ServerProfile Profile, Dictionary<string, string> Configuration);
 public sealed record WorldImportRequest(ServerProfile Profile, Dictionary<string, string> Configuration, WorldImportPlan Source, bool SourceStoppedConfirmed = false);
+public sealed record ResumeSetupRequest(string InstallPath, string ReceiptToken);
+public sealed record ReviewSetupRequest(string InstallPath);
 public sealed record ActionResult(string Message);
 public static class AccessPolicy
 {

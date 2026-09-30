@@ -22,6 +22,40 @@ namespace Wyrmwatch.Desktop.Tests;
 public class ServerFlowsTests
 {
     [AvaloniaFact]
+    public async Task ImportWizardRecoversOwnedPreparedSnapshotAfterOriginalSourceDisappears()
+    {
+        await using var fixture = await Lab.StartAsync();
+        var plan = new ServerCreationPlan("Prepared import", "Fallback", "dummy-owner", "dummy-private", "", 7777,
+            Path.Combine(fixture.Store.DirectoryPath, "WyrmwatchServers"), "prepared-import", Path.Combine(fixture.Store.DirectoryPath, "WyrmwatchBackups"));
+        var staged = plan.Profile with { InstallPath = plan.Profile.InstallPath + ".setup-" + Guid.NewGuid().ToString("N") };
+        await fixture.Steam.InstallAsync(staged, false, _ => { });
+        AtomicFile.Write(staged.ConfigPath, GameConfiguration.Merge("", plan.Configuration));
+        var original = fixture.Existing("Resume source"); var originalFile = Path.Combine(original.SavedPath, "SaveGames", "beta.sav");
+        var source = await WorldImport.InspectAsync(originalFile); var expected = File.ReadAllBytes(originalFile);
+        await WorldImport.CopyAsync(source, Path.Combine(staged.SavedPath, "SaveGames"));
+        await ManagedSetupRecovery.WriteAsync(plan.Profile, staged, source, fixture.Store);
+        Directory.Move(staged.InstallPath, plan.Profile.InstallPath); File.Delete(originalFile);
+        var config = File.ReadAllBytes(plan.Profile.ConfigPath);
+        Click(fixture.Window, Field<Button>(fixture.Window, "ImportServerButton"));
+        var dialog = await Owned<CreateServerDialog>(fixture.Window);
+        var picker = Field<ComboBox>(dialog, "PreparedSetupPicker");
+        await Until(() => picker.Items.Count == 1); Capture(dialog, "prepared-setup-discovery.png");
+        picker.SelectedIndex = 0;
+        await Until(() => Equals(Field<Button>(dialog, "CreateNext").Content, "Resume prepared setup") && Field<Button>(dialog, "CreateNext").IsEnabled);
+        Assert.True(Field<TextBox>(dialog, "CreateOwnerId").IsReadOnly);
+        Assert.Equal("dummy-private", Field<TextBox>(dialog, "CreateAdminPassword").Text);
+        Assert.Contains("Original source is not read", Field<TextBlock>(dialog, "CreateReview").Text);
+        Capture(dialog, "prepared-setup-review.png");
+        Click(dialog, Field<Button>(dialog, "CreateNext"));
+        await Until(() => Equals(Field<Button>(dialog, "CreateNext").Content, "Close"));
+        var profile = Assert.Single(((WorkspaceModel)fixture.Window.DataContext!).Profiles);
+        Assert.Equal(plan.Profile.Id, profile.Id); Assert.Equal(config, File.ReadAllBytes(profile.ConfigPath));
+        Assert.Equal(expected, File.ReadAllBytes(Path.Combine(profile.SavedPath, "SaveGames", "beta.sav")));
+        Assert.False(File.Exists(originalFile)); Assert.Equal(1, fixture.Steam.Installs); Assert.Equal(0, fixture.Runtime.Starts);
+        Assert.False(profile.AutoUpdate); Assert.False(profile.AutoBackup); Assert.False(ManagedSetupRecovery.HasReceipt(profile.InstallPath));
+        Click(dialog, Field<Button>(dialog, "CreateNext"));
+    }
+    [AvaloniaFact]
     public async Task CreateImportEditBackupRestoreAndRemoveKeepServersIsolated()
     {
         await using var fixture = await Lab.StartAsync();

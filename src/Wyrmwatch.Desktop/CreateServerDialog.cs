@@ -7,6 +7,11 @@ using Wyrmwatch.Core;
 
 namespace Wyrmwatch.Desktop;
 
+public sealed record PreparedSetupActions(
+    Func<CancellationToken, Task<IReadOnlyList<PreparedSetupCandidate>>> List,
+    Func<string, CancellationToken, Task<RecoveredSetup>> Review,
+    Func<RecoveredSetup, Action<string>, Task> Resume);
+
 public sealed class CreateServerDialog : Window
 {
     private readonly TextBox serverName = new() { Name = "CreateServerName", Text = "My Dragonwilds server" };
@@ -33,6 +38,15 @@ public sealed class CreateServerDialog : Window
     private readonly IReadOnlyList<ServerProfile> connections;
     private readonly Func<ServerCreationPlan, Action<string>, Task> create;
     private readonly Func<ServerCreationPlan, WorldImportPlan, Action<string>, Task>? importWorld;
+    private readonly PreparedSetupActions? preparedActions;
+    private readonly CancellationTokenSource lifetime = new();
+    private readonly ComboBox preparedPicker = new() { Name = "PreparedSetupPicker", HorizontalAlignment = HorizontalAlignment.Stretch };
+    private readonly TextBlock preparedStatus = new() { Name = "PreparedSetupStatus", TextWrapping = TextWrapping.Wrap, Classes = { "muted" } };
+    private readonly Button newSetup = new() { Name = "PreparedSetupNew", Content = "Start a new setup", IsVisible = false };
+    private readonly Expander preparedRecovery = new() { Name = "PreparedSetupRecovery", Header = "Prepared setup recovery", HorizontalAlignment = HorizontalAlignment.Stretch, IsVisible = false };
+    private RecoveredSetup? recoveredSetup;
+    private bool closed, selectingPrepared;
+    private int preparedReviewVersion;
     private ServerCreationPlan? reviewed;
     private WorldImportPlan? reviewedSource;
     private bool IsWorldImport => importWorld is not null;
@@ -41,9 +55,9 @@ public sealed class CreateServerDialog : Window
     private string suggestedFolder;
 
     public CreateServerDialog(IReadOnlyList<ServerProfile> connections, Func<ServerCreationPlan, Action<string>, Task> create, string? home = null,
-        Func<ServerCreationPlan, WorldImportPlan, Action<string>, Task>? importWorld = null)
+        Func<ServerCreationPlan, WorldImportPlan, Action<string>, Task>? importWorld = null, PreparedSetupActions? preparedActions = null)
     {
-        this.connections = connections; this.create = create; this.importWorld = importWorld;
+        this.connections = connections; this.create = create; this.importWorld = importWorld; this.preparedActions = preparedActions;
         home ??= Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         parent.Text = Path.Combine(home, "WyrmwatchServers");
         backupParent.Text = Path.Combine(home, "WyrmwatchBackups");
@@ -82,7 +96,8 @@ public sealed class CreateServerDialog : Window
         source.PropertyChanged += (_, change) => { if (change.Property == TextBox.TextProperty) { sourceStopped.IsChecked = false; reviewedSource = null; ToolTip.SetTip(source, source.Text); } };
         UpdateLocations();
         var pageGrid = new Grid(); foreach (var page in pages) pageGrid.Children.Add(page);
-        var body = new StackPanel { Margin = new Thickness(28, 24, 28, 16), Spacing = 18, Children = { stepLabel, pageGrid, progress, message } };
+        preparedRecovery.Content = new StackPanel { Spacing = 10, Children = { preparedStatus, preparedPicker, newSetup } };
+        var body = new StackPanel { Margin = new Thickness(28, 24, 28, 16), Spacing = 18, Children = { stepLabel, preparedRecovery, pageGrid, progress, message } };
         scroll = new ScrollViewer { Content = body, HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled };
         var footer = new StackPanel { Margin = new Thickness(28, 12, 28, 24), Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Spacing = 10, Children = { cancel, back, next } };
         Grid.SetRow(footer, 1);
@@ -97,11 +112,85 @@ public sealed class CreateServerDialog : Window
         next.Click += async (_, _) => await AdvanceAsync();
         back.Click += (_, _) => { if (!working && step > 0) { step--; reviewed = null; reviewedSource = null; message.Text = ""; UpdatePage(); } };
         cancel.Click += (_, _) => Close();
-        Closing += (_, e) => { if (working) e.Cancel = true; };
+        Closing += (_, e) => { if (working && progress.IsVisible) e.Cancel = true; };
+        Closed += (_, _) => { closed = true; lifetime.Cancel(); lifetime.Dispose(); };
+        Opened += async (_, _) => await LoadPreparedSetupsAsync();
+        preparedPicker.SelectionChanged += async (_, _) => { if (!selectingPrepared && preparedPicker.SelectedItem is PreparedChoice choice) await SelectPreparedSetupAsync(choice.InstallPath); };
+        newSetup.Click += (_, _) => ClearPreparedSetup();
         UpdatePage();
     }
 
     private static TextBlock Hint(string text) => new() { Text = text, TextWrapping = TextWrapping.Wrap, Classes = { "muted" }, FontSize = 13 };
+    private sealed record PreparedChoice(PreparedSetupCandidate Candidate)
+    {
+        public string InstallPath => Candidate.InstallPath;
+        public override string ToString() => Candidate.Name + " (" + Candidate.StorageName + ")";
+    }
+    private async Task LoadPreparedSetupsAsync()
+    {
+        if (preparedActions is null || closed) return;
+        try
+        {
+            var candidates = await preparedActions.List(lifetime.Token);
+            if (closed) return;
+            var managedParent = parent.Text!;
+            var choices = candidates.Where(p => SafePaths.Same(Path.GetDirectoryName(p.InstallPath)!, managedParent)).Take(100).Select(p => new PreparedChoice(p)).ToArray();
+            selectingPrepared = true;
+            try { preparedPicker.ItemsSource = choices; preparedPicker.SelectedIndex = -1; }
+            finally { selectingPrepared = false; }
+            preparedRecovery.IsVisible = choices.Length > 0;
+            preparedStatus.Text = "Setup files were prepared but their connection was not saved. Select a setup to verify its files and review the original settings. Resuming does not download, copy or start the game.";
+            preparedRecovery.IsExpanded = choices.Length > 0;
+        }
+        catch (OperationCanceledException) when (closed) { }
+        catch (Exception error) { if (!closed) { preparedRecovery.IsVisible = true; preparedStatus.Text = "Could not check prepared setups: " + error.Message; } }
+    }
+    private async Task ApplyPreparedSetupAsync(string installPath)
+    {
+        if (preparedActions is null) throw new IOException("Prepared setup recovery is unavailable.");
+        var version = ++preparedReviewVersion;
+        var recovered = await preparedActions.Review(installPath, lifetime.Token);
+        if (closed || version != preparedReviewVersion) return;
+        if (!SafePaths.Same(Path.GetDirectoryName(recovered.Profile.InstallPath)!, parent.Text!)) throw new IOException("Prepared setup is outside the managed server location.");
+        recoveredSetup = recovered;
+        serverName.Text = recovered.Profile.Name; folder.Text = Path.GetFileName(recovered.Profile.InstallPath);
+        world.Text = recovered.Configuration.GetValueOrDefault("DefaultWorldName", "");
+        owner.Text = recovered.Configuration.GetValueOrDefault("OwnerId", "");
+        admin.Text = recovered.Configuration.GetValueOrDefault("AdminPassword", "");
+        password.Text = recovered.Configuration.GetValueOrDefault("WorldPassword", ""); port.Value = recovered.Profile.Port;
+        source.Text = recovered.Source?.SourcePath ?? "";
+        foreach (var field in new[] { serverName, folder, world, owner, admin, password, source }) field.IsReadOnly = true;
+        port.IsEnabled = sourceStopped.IsEnabled = false;
+        newSetup.IsVisible = true; preparedRecovery.IsVisible = true; preparedRecovery.IsExpanded = false;
+        preparedStatus.Text = "This workspace's setup receipt and recorded files verified. Original settings are retained. Resume saves only the connection; the copied snapshot can be recovered even if its original source has changed or disappeared.";
+        var p = recovered.Profile;
+        summary.Text = $"Prepared server: {p.Name}\nOwner Player ID: {owner.Text}\nUDP port: {p.Port}\n\nInstall: {p.InstallPath}\n\nSave data: {p.SavedPath}\n\nBackups: {p.BackupPath}\n\nAdmin password: original retained\nWorld access: {(string.IsNullOrEmpty(password.Text) ? "no password required" : "password required")}\n\n" +
+            (recovered.Source is null ? "Fresh-world setup. The world is created on first Start." : $"Verified prepared world: {recovered.Source.FileName}\nOriginal source is not read or copied again. Verify game compatibility after Start.") +
+            "\n\nResume saves the connection only. Existing files stay unchanged; the server must be stopped and automation remains off.";
+        step = 2; UpdateLocations(); UpdatePage();
+        ((TextBlock)pages[2].Children[2]).Text = "Registers this workspace's verified prepared installation. No download, world copy or game start occurs.";
+    }
+    private async Task SelectPreparedSetupAsync(string installPath)
+    {
+        if (working || finished) return;
+        working = true; next.IsEnabled = back.IsEnabled = preparedPicker.IsEnabled = newSetup.IsEnabled = false;
+        try { await ApplyPreparedSetupAsync(installPath); }
+        catch (Exception error) { if (!closed) message.Text = error.Message; }
+        finally { working = false; if (!closed) { next.IsEnabled = preparedPicker.IsEnabled = newSetup.IsEnabled = true; UpdatePage(); } }
+    }
+    private void ClearPreparedSetup()
+    {
+        if (working || finished) return;
+        ++preparedReviewVersion; recoveredSetup = null; reviewed = null; reviewedSource = null;
+        foreach (var field in new[] { serverName, folder, world, owner, admin, password, source }) field.IsReadOnly = false;
+        port.IsEnabled = sourceStopped.IsEnabled = true;
+        serverName.Text = "My Dragonwilds server"; world.Text = "My World"; owner.Text = "";
+        admin.Text = ServerCreationPlan.GeneratePassword(); password.Text = ""; source.Text = ""; port.Value = 7777;
+        folder.Text = suggestedFolder = ServerCreationPlan.SuggestFolderName(serverName.Text);
+        selectingPrepared = true; preparedPicker.SelectedIndex = -1; selectingPrepared = false;
+        newSetup.IsVisible = false; message.Text = ""; step = 0; UpdatePage();
+        ((TextBlock)pages[2].Children[2]).Text = IsWorldImport ? "Downloads a fresh server through SteamCMD and copies only the reviewed world file. The game stays stopped." : "Downloads through SteamCMD. The world is created on first start.";
+    }
     private static StackPanel Field(string label, Control input, string? help = null)
     {
         var field = new StackPanel { Spacing = 6, Children = { new TextBlock { Text = label, FontWeight = FontWeight.SemiBold }, input } };
@@ -145,7 +234,7 @@ public sealed class CreateServerDialog : Window
     {
         for (var i = 0; i < pages.Length; i++) pages[i].IsVisible = i == step;
         stepLabel.Text = $"STEP {step + 1} OF 3  ·  " + new[] { "WORLD & OWNER", "ACCESS & STORAGE", "REVIEW" }[step];
-        back.IsVisible = step > 0; next.Content = step == 2 ? (IsWorldImport ? "Import World" : "Create Server") : step == 1 ? "Review setup" : "Continue";
+        back.IsVisible = step > 0 && recoveredSetup is null; next.Content = recoveredSetup is not null ? "Resume prepared setup" : step == 2 ? (IsWorldImport ? "Import World" : "Create Server") : step == 1 ? "Review setup" : "Continue";
         scroll.Offset = default;
     }
     internal async Task AdvanceAsync()
@@ -154,9 +243,26 @@ public sealed class CreateServerDialog : Window
         if (finished) { Close(); return; }
         message.Text = "";
         working = true; next.IsEnabled = back.IsEnabled = cancel.IsEnabled = false;
+        preparedPicker.IsEnabled = newSetup.IsEnabled = false;
         foreach (var page in pages) page.IsEnabled = false;
         try
         {
+            if (recoveredSetup is null && preparedActions is not null)
+            {
+                var target = ReadPlan().Profile.InstallPath;
+                if (await Task.Run(() => ManagedSetupRecovery.HasReceipt(target))) { await ApplyPreparedSetupAsync(target); return; }
+            }
+            if (recoveredSetup is not null)
+            {
+                var current = await preparedActions!.Review(recoveredSetup.Profile.InstallPath, lifetime.Token);
+                if (current.ReceiptToken != recoveredSetup.ReceiptToken) throw new IOException("Prepared setup changed after review. Select it again before resuming.");
+                progress.IsVisible = true; next.Content = "Resuming.";
+                await preparedActions.Resume(current, text => message.Text = text);
+                finished = true; stepLabel.Text = "SETUP RECOVERED";
+                summary.Text = current.Profile.Name + " is connected and stopped. Its prepared world and settings were preserved. Close this window and Start only when ready; automation remains off.";
+                message.Text = "Connection saved. No download, copy or game start occurred.";
+                return;
+            }
             if (step == 0)
             {
                 // Validate the required game fields before moving away from their help text.
@@ -205,15 +311,16 @@ public sealed class CreateServerDialog : Window
             {
                 stepLabel.Text = "SETUP NEEDS ATTENTION";
                 ((TextBlock)pages[2].Children[0]).Text = "Setup did not finish";
-                summary.Text = "Setup did not finish. Existing files were preserved. Check the message below and Activity for details. You can retry here, or use Back to adjust the setup.\n\nDestination: " + reviewed!.Profile.InstallPath;
+                summary.Text = "Setup did not finish. Existing files were preserved. Check the message below and Activity for details. Reopen the wizard to review any prepared setup, or use Back to adjust a failed download.\n\nDestination: " + (reviewed?.Profile.InstallPath ?? recoveredSetup?.Profile.InstallPath);
             }
         }
         finally
         {
             working = false; progress.IsVisible = false;
             next.IsEnabled = back.IsEnabled = cancel.IsEnabled = true;
+            preparedPicker.IsEnabled = newSetup.IsEnabled = true;
             foreach (var page in pages) page.IsEnabled = true;
-            if (!finished && step == 2) next.Content = IsWorldImport ? "Import World" : "Create Server";
+            if (!finished && step == 2) next.Content = recoveredSetup is not null ? "Resume prepared setup" : IsWorldImport ? "Import World" : "Create Server";
             if (finished) { next.Content = "Close"; back.IsVisible = cancel.IsVisible = false; }
         }
     }

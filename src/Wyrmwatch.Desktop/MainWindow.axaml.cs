@@ -248,7 +248,7 @@ public partial class MainWindow : Window
         if (!model.CanManage) return;
         try
         {
-            await new CreateServerDialog(model.Profiles.ToArray(), CreateServerAsync, Program.HeadlessTest ? store.DirectoryPath : null, ImportWorldAsync).ShowDialog(this);
+            await new CreateServerDialog(model.Profiles.ToArray(), CreateServerAsync, Program.HeadlessTest ? store.DirectoryPath : null, ImportWorldAsync, PreparedActions()).ShowDialog(this);
         }
         catch (Exception error) { await ShowSetupErrorAsync("Could not import world", error.Message); }
     }
@@ -258,7 +258,7 @@ public partial class MainWindow : Window
         if (!model.CanManage) return;
         try
         {
-            await new CreateServerDialog(model.Profiles.ToArray(), CreateServerAsync, Program.HeadlessTest ? store.DirectoryPath : null).ShowDialog(this);
+            await new CreateServerDialog(model.Profiles.ToArray(), CreateServerAsync, Program.HeadlessTest ? store.DirectoryPath : null, preparedActions: PreparedActions()).ShowDialog(this);
         }
         catch (Exception error) { await ShowSetupErrorAsync("Could not create server", error.Message); }
     }
@@ -296,6 +296,19 @@ public partial class MainWindow : Window
         settings = settings with { SelectedServerId = profile.Id };
         await SaveSettingsAsync(); LoadProfile(); ShowPage(WorkspacePage.Servers);
         await RefreshServersAsync();
+    }
+    private PreparedSetupActions PreparedActions() => new(service!.ListPreparedSetupsAsync, service!.ReviewPreparedSetupAsync, ResumePreparedSetupAsync);
+    private async Task ResumePreparedSetupAsync(RecoveredSetup setup, Action<string> report)
+    {
+        if (service!.Busy) throw new IOException("Another server operation is still running.");
+        model.Busy = true;
+        try
+        {
+            report("Verifying the prepared files and saving their connection. No files are copied or downloaded.");
+            await AddProfileAsync(await service.ResumePreparedSetupAsync(setup.Profile.InstallPath, setup.ReceiptToken));
+            model.Notice = "Prepared setup recovered. Server stopped; files preserved and automation off.";
+        }
+        finally { model.Busy = false; }
     }
     private async Task ShowSetupErrorAsync(string title, string message)
     {

@@ -54,6 +54,8 @@ Cancelling before confirmation changes no files. Creation/import never starts a 
 
 Previously saved profiles continue to work, including profiles with external save locations. Their installation and save paths remain read-only in Server settings. Disconnecting an entry preserves its installation, worlds, configuration and backups.
 
+If a completed setup has no saved connection after an interruption, reopen its original workspace and open **Create a server** or **Import a world**, matching the original setup. Select its prepared setup, review the verified settings and choose **Resume prepared setup**. Wyrmwatch checks its workspace ownership receipt and saved-data/launcher hashes, confirms it is stopped, then saves only the connection. It preserves the prepared world and settings without another download or source copy. A missing original source does not prevent resuming its verified copied world. Unknown or modified installations cannot be adopted this way.
+
 ## Editing a server
 
 Choose **Edit server** on Servers, or open **Server settings** in the sidebar. Owner ID, fallback world name, passwords and port belong to the selected server; installation and save locations are read-only. Game configuration can be saved only while that server is confirmed stopped. **App settings** contains appearance, language, desktop behavior.

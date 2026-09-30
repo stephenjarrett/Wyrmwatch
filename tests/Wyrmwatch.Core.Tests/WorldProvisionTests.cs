@@ -148,7 +148,7 @@ public class WorldProvisionTests
         var error = await Assert.ThrowsAsync<IOException>(Submit);
         Assert.Contains("Completed setup files were preserved at " + plan.Profile.InstallPath, error.Message);
         Assert.Contains("did not save the server connection", error.Message);
-        Assert.Contains("Do not retry into that existing folder", error.Message);
+        Assert.Contains("Resume prepared setup", error.Message);
         Assert.True(File.Exists(plan.Profile.Launcher)); Assert.True(File.Exists(plan.Profile.ConfigPath));
         if (importWorld) Assert.Equal(sourceBefore, File.ReadAllBytes(Path.Combine(plan.Profile.SavedPath, "SaveGames", "Selected.sav")));
         Assert.Equal(f.Profile.Id, Assert.Single(host.Settings.Servers).Id);
