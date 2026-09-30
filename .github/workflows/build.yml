@@ -25,7 +25,7 @@ jobs:
       - name: Core and UI smoke checks
         shell: pwsh
         run: |
-          dotnet test tests/Dragonwilds.Core.Tests -c Release
+          dotnet test tests/Wyrmwatch.Core.Tests -c Release
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           dotnet test tests/Wyrmwatch.Desktop.Tests -c Release
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

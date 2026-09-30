@@ -7,7 +7,7 @@ Push-Location $root
 try {
     $output=Join-Path $OutputRoot $Runtime
     if(-not $SkipTests){
-        & $dotnet test tests/Dragonwilds.Core.Tests -c Release
+        & $dotnet test tests/Wyrmwatch.Core.Tests -c Release
         if($LASTEXITCODE -ne 0){throw 'Core checks failed'}
         & $dotnet test tests/Wyrmwatch.Desktop.Tests -c Release
         if($LASTEXITCODE -ne 0){throw 'UI smoke checks failed'}
@@ -17,7 +17,7 @@ try {
     & $dotnet publish src/Wyrmwatch.Agent -c Release -r $Runtime --self-contained true -o "$output/agent"
     if($LASTEXITCODE -ne 0){throw 'Background manager publish failed'}
     if($Runtime -eq 'win-x64'){
-        & $dotnet publish src/Dragonwilds.Signal -c Release -r $Runtime --self-contained true -o $output
+        & $dotnet publish src/Wyrmwatch.Signal -c Release -r $Runtime --self-contained true -o $output
         if($LASTEXITCODE -ne 0){throw 'Shutdown helper publish failed'}
     }
     foreach($document in @('README.md','LICENSE','NOTICE','CONTRIBUTING.md','THIRD-PARTY-NOTICES.md')) {

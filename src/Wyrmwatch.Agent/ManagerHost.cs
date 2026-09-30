@@ -1,13 +1,13 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
-using Dragonwilds.Core;
-using Dragonwilds.Windows;
+using Wyrmwatch.Core;
+using Wyrmwatch.Platform;
 
 namespace Wyrmwatch.Agent;
 
 public sealed class ManagerHost
 {
-    public const string Version = "0.2.0";
+    public const string Version = "0.2.1";
     private readonly JsonStore store;
     private readonly IServerRuntime runtime;
     private readonly ISteamClient steam;
@@ -27,7 +27,7 @@ public sealed class ManagerHost
     public ManagerHost(JsonStore store, IServerRuntime? runtime = null, ISteamClient? steam = null)
     {
         this.store = store;
-        var helper = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "Dragonwilds.Signal.exe"));
+        var helper = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "Wyrmwatch.Signal.exe"));
         this.runtime = new SingleServerRuntime(runtime ?? (OperatingSystem.IsWindows() ? new WindowsRuntime(store, helper) : new LinuxRuntime(store)), () =>
         {
             var settings = Settings;

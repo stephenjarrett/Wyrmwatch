@@ -3,7 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
-using Dragonwilds.Core;
+using Wyrmwatch.Core;
 
 namespace Wyrmwatch.Desktop;
 

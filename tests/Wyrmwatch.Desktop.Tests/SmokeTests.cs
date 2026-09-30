@@ -7,7 +7,7 @@ using Avalonia.LogicalTree;
 using Avalonia.Media;
 using Avalonia.Controls.Presenters;
 using Avalonia.VisualTree;
-using Dragonwilds.Core;
+using Wyrmwatch.Core;
 using Wyrmwatch.Desktop;
 
 [assembly: AvaloniaTestApplication(typeof(Wyrmwatch.Desktop.Tests.TestApp))]
@@ -95,7 +95,7 @@ public class SmokeTests
             var field = window.FindControl<TextBox>("ProfileName")!; field.Text = "Unsaved user input"; field.Focus();
             var model = (WorkspaceModel)window.DataContext!; model.Cpu = "12.3%"; model.Players = "3"; model.Status = "Online";
             Assert.Equal("Unsaved user input", field.Text);
-            var language = new Dragonwilds.Core.LanguagePack("xx", "Test language", new() { [Localization.Key("Make yourself at home.")] = "Translated settings" });
+            var language = new Wyrmwatch.Core.LanguagePack("xx", "Test language", new() { [Localization.Key("Make yourself at home.")] = "Translated settings" });
             var languages = window.FindControl<ComboBox>("LanguagePicker")!; languages.ItemsSource = new[] { Localization.English, language }; languages.SelectedIndex = 1;
             Assert.Equal("Translated settings", model.PageTitle); Assert.Equal("Unsaved user input", field.Text);
             languages.SelectedIndex = 0;

@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><TargetFramework>net10.0</TargetFramework><IsTestProject>true</IsTestProject><IsPackable>false</IsPackable></PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.10.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5"><PrivateAssets>all</PrivateAssets></PackageReference>
+    <ProjectReference Include="../../src/Wyrmwatch.Core/Wyrmwatch.Core.csproj" />
+    <ProjectReference Include="../../src/Wyrmwatch.Platform/Wyrmwatch.Platform.csproj" />
+    <ProjectReference Include="../../src/Wyrmwatch.Signal/Wyrmwatch.Signal.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="../../src/Wyrmwatch.Agent/Wyrmwatch.Agent.csproj" />
+    <ProjectReference Include="../FixtureServer/FixtureServer.csproj" ReferenceOutputAssembly="false" />
+    <Using Include="Xunit" />
+  </ItemGroup>
+  <Target Name="CopySmokeHelpers" AfterTargets="Build">
+    <ItemGroup><SignalFiles Include="../../src/Wyrmwatch.Signal/bin/$(Configuration)/net10.0/Wyrmwatch.Signal*" /><FixtureFiles Include="../FixtureServer/bin/$(Configuration)/net10.0/*" /></ItemGroup>
+    <Copy SourceFiles="@(SignalFiles)" DestinationFolder="$(OutDir)" />
+    <Copy SourceFiles="@(FixtureFiles)" DestinationFolder="$(OutDir)fixture/" />
+    <ItemGroup><AgentFiles Include="../../src/Wyrmwatch.Agent/bin/$(Configuration)/net10.0/**" Exclude="../../src/Wyrmwatch.Agent/bin/$(Configuration)/net10.0/win-x64/**;../../src/Wyrmwatch.Agent/bin/$(Configuration)/net10.0/linux-x64/**" /></ItemGroup>
+    <Copy SourceFiles="@(AgentFiles)" DestinationFiles="@(AgentFiles->'$(OutDir)agent/%(RecursiveDir)%(Filename)%(Extension)')" />
+  </Target>
+</Project>

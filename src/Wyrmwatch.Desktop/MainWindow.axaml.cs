@@ -9,8 +9,8 @@ using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Styling;
 using Avalonia.Threading;
-using Dragonwilds.Core;
-using Dragonwilds.Windows;
+using Wyrmwatch.Core;
+using Wyrmwatch.Platform;
 
 namespace Wyrmwatch.Desktop;
 

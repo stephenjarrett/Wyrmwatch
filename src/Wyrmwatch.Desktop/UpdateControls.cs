@@ -2,7 +2,7 @@ using System.Diagnostics;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Interactivity;
-using Dragonwilds.Core;
+using Wyrmwatch.Core;
 
 namespace Wyrmwatch.Desktop;
 
