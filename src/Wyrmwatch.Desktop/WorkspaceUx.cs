@@ -79,10 +79,11 @@ public partial class MainWindow
         model.FinishOperation(result?.Detail ?? "Manager operation ended. Review Activity for its result.", result?.Status == "Succeeded", outcome: outcome);
         if (result?.Status is "Failed" or "Interrupted") model.ReportError("Manager operation needs attention", result.Detail);
     }
-    private void ReportOperationFailure(string title, Exception error)
+    private static string SetupErrorOwner(string installPath) => "setup:" + (OperatingSystem.IsWindows() ? Path.GetFullPath(installPath).ToUpperInvariant() : Path.GetFullPath(installPath));
+    private void ReportOperationFailure(string title, Exception error, string? owner = null)
     {
         var recovery = model.RecoveryPending || title.Contains("restore", StringComparison.OrdinalIgnoreCase) || title.Contains("recovery", StringComparison.OrdinalIgnoreCase);
-        model.ReportError(title + " stopped. " + (recovery ? "Check retained files and recovery here before retrying." : "Review Activity and verify server state before retrying."), error.Message, recovery ? "Backups" : "Activity", recovery ? "Open recovery in Backups" : "Open Activity");
+        model.ReportError(title + " stopped. " + (recovery ? "Check retained files and recovery here before retrying." : "Review Activity and verify server state before retrying."), error.Message, recovery ? "Backups" : "Activity", recovery ? "Open recovery in Backups" : "Open Activity", owner);
     }
     private async Task ReturnFromSetupAsync(CreateServerDialog dialog)
     {
@@ -104,6 +105,19 @@ public partial class MainWindow
         {
             case "Backups": ShowPage(WorkspacePage.Backups); if (model.RecoveryPending) RecoverRestoreButton.Focus(); break;
             case "Servers": ShowPage(WorkspacePage.Servers); break;
+            case "RunningServer":
+                try
+                {
+                    if (model.OtherRunningServer is { } running && model.Profiles.FirstOrDefault(p => p.Id == running.Id) is { } profile)
+                    {
+                        model.SelectedProfile = profile; LoadProfile();
+                        settings = settings with { SelectedServerId = profile.Id };
+                        await SaveSettingsAsync(); await RefreshServersAsync();
+                        ShowPage(WorkspacePage.Servers); StopButton.Focus();
+                    }
+                }
+                catch (Exception error) { model.ReportError("Could not open the running server", error.Message, "Servers", "Back to Servers"); }
+                break;
             case "ServerSettings": ShowPage(WorkspacePage.ServerSettings); break;
             case "AppUpdates": case "App updates": ShowPage(WorkspacePage.AppUpdates); CheckAppButton.Focus(); break;
             case "Help": case "Help & diagnostics": ShowPage(WorkspacePage.Help); break;

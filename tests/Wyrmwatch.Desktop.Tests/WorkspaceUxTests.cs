@@ -20,6 +20,41 @@ namespace Wyrmwatch.Desktop.Tests;
 public class WorkspaceUxTests
 {
     [AvaloniaFact]
+    public async Task RefusedStartKeepsConfirmedStoppedStateAndPointsToObservedRunningServer()
+    {
+        using var handler = new PrerequisiteRefusalHandler();
+        using var http = new HttpClient(handler) { BaseAddress = new Uri("http://127.0.0.1/") };
+        using var fixture = new Fixture(http); handler.Profile = fixture.Profile;
+        Field<Button>(fixture.Window, "StartButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        for (var i = 0; i < 200 && (handler.Actions == 0 || fixture.Model.Busy); i++) { Dispatcher.UIThread.RunJobs(); await Task.Delay(10); }
+        Assert.Equal(1, handler.Actions); Assert.False(fixture.Model.Busy);
+        Assert.False(fixture.Model.InspectionUnknown); Assert.Equal(false, fixture.Model.ServerRunning);
+        Assert.False(fixture.Model.CanStart); Assert.Equal("RunningServer", fixture.Model.StartHelpDestination);
+        Assert.Contains("Running prerequisite fixture", fixture.Model.StartHint);
+        Assert.Contains("Another saved server is running", fixture.Model.ErrorDetail);
+    }
+
+    private sealed class PrerequisiteRefusalHandler : HttpMessageHandler
+    {
+        public ServerProfile Profile = null!;
+        public int Actions;
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
+        {
+            if (request.Method == HttpMethod.Post && request.RequestUri!.AbsolutePath.EndsWith("/actions"))
+            {
+                Interlocked.Increment(ref Actions);
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.BadRequest) { Content = JsonContent.Create(new ActionResult("Another saved server is running. Stop it before starting this server.")) });
+            }
+            if (request.Method == HttpMethod.Get && request.RequestUri!.AbsolutePath == "/api/status")
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(new AgentStatus(false, "fixture", [
+                    new(Profile.Id, Profile.Name, ServerSnapshot.Offline, new(), null),
+                    new("running-fixture", "Running prerequisite fixture", ServerSnapshot.Offline with { Running = true }, new(), null)
+                ], [], [], false, null)) });
+            throw new IOException("Unexpected disposable prerequisite request.");
+        }
+    }
+
+    [AvaloniaFact]
     public void RecoveryPrerequisiteIsKeyboardReachableAndRoutesToRecoveryWithoutStarting()
     {
         using var fixture = new Fixture(); var model = fixture.Model; var window = fixture.Window;

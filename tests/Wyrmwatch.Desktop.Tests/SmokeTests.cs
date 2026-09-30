@@ -466,7 +466,32 @@ public class SmokeTests
         var root = Path.Combine(Path.GetTempPath(), "wyrmwatch-ui-" + Guid.NewGuid().ToString("N"));
         Program.HeadlessTest = true; Program.Demo = false; Program.DataDirectory = root;
         var window = new MainWindow(); window.Show();
-        try { var model = Assert.IsType<WorkspaceModel>(window.DataContext); Assert.Empty(model.Profiles); Assert.True(model.NoServer); Assert.False(model.CanAct); }
+        try
+        {
+            var model = Assert.IsType<WorkspaceModel>(window.DataContext); Assert.Empty(model.Profiles); Assert.True(model.NoServer); Assert.False(model.CanAct);
+            Assert.Contains("Create a server or import a world", model.Notice);
+            var hint = window.FindControl<TextBlock>("EmptyServersHint")!;
+            Assert.True(hint.IsEffectivelyVisible);
+            Assert.Contains("world save", hint.Text); Assert.Contains("new managed installation", hint.Text);
+            Assert.DoesNotContain("existing installation", hint.Text);
+            var originalTheme = Application.Current!.RequestedThemeVariant;
+            try
+            {
+                foreach (var theme in new[] { ThemeVariant.Dark, ThemeVariant.Light })
+                {
+                    Application.Current.RequestedThemeVariant = theme;
+                    window.UpdateLayout(); Avalonia.Threading.Dispatcher.UIThread.RunJobs(); AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+                    using var frame = window.CaptureRenderedFrame(); Assert.NotNull(frame);
+                    var directory = Environment.GetEnvironmentVariable("WYRM_TEST_SCREENSHOTS");
+                    if (!string.IsNullOrWhiteSpace(directory))
+                    {
+                        Directory.CreateDirectory(directory);
+                        frame.Save(Path.Combine(directory, theme == ThemeVariant.Dark ? "empty-servers-dark.png" : "empty-servers-light.png"), Avalonia.Media.Imaging.PngBitmapEncoderOptions.Default);
+                    }
+                }
+            }
+            finally { Application.Current.RequestedThemeVariant = originalTheme; }
+        }
         finally { window.Close(); if (Directory.Exists(root)) Directory.Delete(root, true); }
     }
 }

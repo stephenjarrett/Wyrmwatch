@@ -122,6 +122,7 @@ public sealed class CreateServerDialog : Window
             Page("Review setup", summary,
                 Hint(IsWorldImport ? "Downloads a fresh server through SteamCMD and copies only the reviewed world file. The game stays stopped." : "Downloads through SteamCMD. The world is created on first start."))
         ];
+        ((TextBlock)pages[2].Children[0]).Name = "CreateReviewHeading";
         if (IsWorldImport)
         {
             pages[0].Children.Insert(1, Hint("Close Dragonwilds and stop the source server before selecting its world save. Import copies one .sav file into a new connection; character files, configuration, passwords and backups are not copied."));
@@ -311,6 +312,8 @@ public sealed class CreateServerDialog : Window
     }
     private void ShowNormalReview(ServerCreationPlan plan)
     {
+        ((TextBlock)pages[2].Children[0]).Text = "Review setup";
+        summary.Text = "";
         summary.IsVisible = preparedReview.IsVisible = false; pages[2].Children[2].IsVisible = false;
         normalReview.Children.Clear();
         normalReview.Children.Add(ReviewCard(new StackPanel { Spacing = 6, Children = {

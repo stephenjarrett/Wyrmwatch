@@ -13,7 +13,7 @@
     <Style Selector="Border.attention"><Setter Property="BorderBrush" Value="{DynamicResource AttentionBrush}" /><Setter Property="BorderThickness" Value="2" /></Style>
     <Style Selector="TextBlock.field-error"><Setter Property="Foreground" Value="{DynamicResource AttentionBrush}" /><Setter Property="FontSize" Value="12" /></Style>
     <Style Selector="Button:focus-visible"><Setter Property="BorderBrush" Value="{DynamicResource NavSelectedTextBrush}" /><Setter Property="BorderThickness" Value="2" /></Style>
-    <Style Selector="Button"><Setter Property="CornerRadius" Value="7" /><Setter Property="Padding" Value="16,10" /><Setter Property="Cursor" Value="Hand" /><Setter Property="Background" Value="{DynamicResource ButtonSurfaceBrush}" /><Setter Property="Foreground" Value="{DynamicResource TextBrush}" /><Setter Property="BorderBrush" Value="{DynamicResource LineBrush}" /></Style>
+    <Style Selector="Button"><Setter Property="CornerRadius" Value="7" /><Setter Property="Padding" Value="16,10" /><Setter Property="VerticalContentAlignment" Value="Center" /><Setter Property="Cursor" Value="Hand" /><Setter Property="Background" Value="{DynamicResource ButtonSurfaceBrush}" /><Setter Property="Foreground" Value="{DynamicResource TextBrush}" /><Setter Property="BorderBrush" Value="{DynamicResource LineBrush}" /></Style>
     <Style Selector="Button.primary"><Setter Property="Background" Value="#8A78F0" /><Setter Property="Foreground" Value="#111019" /><Setter Property="FontWeight" Value="SemiBold" /></Style>
     <Style Selector="Button.subtle"><Setter Property="Background" Value="Transparent" /><Setter Property="BorderBrush" Value="{DynamicResource LineBrush}" /><Setter Property="BorderThickness" Value="1" /></Style>
     <Style Selector="Button:pointerover"><Setter Property="Opacity" Value="0.96" /></Style>
@@ -23,8 +23,10 @@
     <Style Selector="Button.primary:pointerover /template/ ContentPresenter#PART_ContentPresenter"><Setter Property="Background" Value="#A596F7" /><Setter Property="Foreground" Value="#111019" /></Style>
     <Style Selector="Button.primary:pressed /template/ ContentPresenter#PART_ContentPresenter"><Setter Property="Background" Value="#8A78F0" /><Setter Property="Foreground" Value="#111019" /></Style>
     <Style Selector="Button:disabled /template/ ContentPresenter#PART_ContentPresenter"><Setter Property="Background" Value="{DynamicResource CardBrush}" /><Setter Property="BorderBrush" Value="{DynamicResource LineBrush}" /><Setter Property="Foreground" Value="{DynamicResource MutedBrush}" /><Setter Property="Opacity" Value="0.55" /></Style>
-    <Style Selector="TextBox"><Setter Property="CornerRadius" Value="7" /><Setter Property="MinHeight" Value="38" /></Style>
+    <Style Selector="TextBox"><Setter Property="CornerRadius" Value="7" /><Setter Property="MinHeight" Value="38" /><Setter Property="VerticalContentAlignment" Value="Center" /></Style>
+    <Style Selector="TextBox[AcceptsReturn=True]"><Setter Property="VerticalContentAlignment" Value="Top" /></Style>
     <Style Selector="ComboBox"><Setter Property="CornerRadius" Value="7" /><Setter Property="MinHeight" Value="38" /></Style>
+    <Style Selector="NumericUpDown"><Setter Property="CornerRadius" Value="7" /><Setter Property="MinHeight" Value="38" /><Setter Property="VerticalContentAlignment" Value="Center" /></Style>
     <Style Selector="ListBox.nav"><Setter Property="Background" Value="Transparent" /><Setter Property="BorderThickness" Value="0" /></Style>
     <Style Selector="ListBox.nav ListBoxItem"><Setter Property="CornerRadius" Value="8" /><Setter Property="Padding" Value="14,12" /><Setter Property="Margin" Value="0,3" /><Setter Property="FontSize" Value="14" /></Style>
     <Style Selector="ListBox.nav ListBoxItem:selected /template/ ContentPresenter"><Setter Property="Background" Value="{DynamicResource NavSelectedBrush}" /><Setter Property="Foreground" Value="{DynamicResource NavSelectedTextBrush}" /></Style>

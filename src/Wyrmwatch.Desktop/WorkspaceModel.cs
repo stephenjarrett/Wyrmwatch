@@ -104,7 +104,14 @@ public sealed class WorkspaceModel : INotifyPropertyChanged
             Set(ref serverRunning, value); RefreshActions(); RefreshObservation();
         }
     }
-    public bool CanStart => CanAct && ServerRunning == false;
+    private IReadOnlyList<ManagedServer> observedServers = [];
+    public ManagedServer? OtherRunningServer => observedServers.FirstOrDefault(s => s.Id != SelectedProfile?.Id && s.State.Running);
+    private bool OtherServerStateUnknown => observedServers.Any(s => s.Id != SelectedProfile?.Id && !s.State.Accessible);
+    public void UpdateStartPrerequisites(IEnumerable<ManagedServer> servers)
+    {
+        observedServers = servers.ToArray(); RefreshActions();
+    }
+    public bool CanStart => CanAct && ServerRunning == false && OtherRunningServer is null && !OtherServerStateUnknown;
     public bool CanStop => HasServer && !Busy && !Program.Demo && ServerRunning == true;
     public bool CanRestart => CanAct && ServerRunning == true;
     public bool CanRestore => CanAct && ServerRunning == false;
@@ -121,14 +128,14 @@ public sealed class WorkspaceModel : INotifyPropertyChanged
     public bool InstalledBuildKnown { get => installedBuildKnown; set { Set(ref installedBuildKnown, value); RefreshActions(); } }
     public bool CanUpdate => CanAct && InstalledBuildKnown;
     public string UpdateHint => !HasServer ? "Choose a server before checking its game update." : Program.Demo ? "Server actions are disabled in the demo workspace." : Busy ? "Wait for the current operation to finish before applying a game update." : RecoveryPending ? "Recover the interrupted restore in Backups before applying a game update." : InstalledBuildKnown ? "Game updates require a verified backup and no connected players. Unknown player activity defers the update." : "Apply game update is unavailable until the installed Steam build is known. Check for updates to review build information; no server files are changed by the check.";
-    public string StartHint => !HasServer ? "Choose or create a server before starting." : Program.Demo ? "Server actions are disabled in the demo workspace." : Busy ? "Wait for the current operation to finish before starting." : RecoveryPending ? "Recover the interrupted restore in Backups before starting this server." : ServerRunning switch
+    public string StartHint => !HasServer ? "Choose or create a server before starting." : Program.Demo ? "Server actions are disabled in the demo workspace." : Busy ? "Wait for the current operation to finish before starting." : RecoveryPending ? "Recover the interrupted restore in Backups before starting this server." : ServerRunning == false && OtherRunningServer is { } running ? $"{running.Name} is running. Open that server and stop it before starting this connection. Selecting a server does not stop it." : ServerRunning == false && OtherServerStateUnknown ? "Another saved server cannot be inspected. Check its state before starting this connection." : ServerRunning switch
     {
         true => "This server is already running.",
         false => "Start launches this connection. Verify the world in game, then create a backup.",
         _ => ServerStateHint
     };
-    public string StartHelpDestination => !HasServer ? "Servers" : Busy || Program.Demo ? "Activity" : RecoveryPending ? "Backups" : ServerRunning is null ? "Refresh" : "Activity";
-    public string StartHelpText => StartHelpDestination switch { "Servers" => "Choose a server", "Backups" => "Open recovery in Backups", "Refresh" => InspectionUnknown ? "Retry server check" : "Check server state", _ => "Open Activity" };
+    public string StartHelpDestination => !HasServer ? "Servers" : Busy || Program.Demo ? "Activity" : RecoveryPending ? "Backups" : ServerRunning is null ? "Refresh" : ServerRunning == false && OtherRunningServer is not null ? "RunningServer" : ServerRunning == false && OtherServerStateUnknown ? "Refresh" : "Activity";
+    public string StartHelpText => StartHelpDestination switch { "Servers" => "Choose a server", "Backups" => "Open recovery in Backups", "RunningServer" => "Open " + OtherRunningServer!.Name, "Refresh" => InspectionUnknown ? "Retry server check" : "Check server state", _ => "Open Activity" };
     public string RestoreHint => !HasServer ? "Choose a server before restoring a backup." : Program.Demo ? "Server actions are disabled in the demo workspace." : Busy ? "Wait for the current operation to finish before restoring." : RecoveryPending ? "Recover the interrupted restore here before restoring another backup." : ServerRunning is null ? ServerStateHint : ServerRunning == true ? "Stop this server before restoring a backup." : !BackupSelected ? "Select a backup to review and restore." : "Restore the selected backup after reviewing its coverage. The server remains stopped.";
     public string RestoreHelpDestination => !HasServer ? "Servers" : Busy || Program.Demo ? "Activity" : RecoveryPending ? "Backups" : ServerRunning is null ? "Refresh" : ServerRunning == true ? "Stop" : "SelectBackup";
     public string RestoreHelpText => RestoreHelpDestination switch { "Servers" => "Choose a server", "Backups" => "Recover here", "Refresh" => InspectionUnknown ? "Retry server check" : "Check server state", "Stop" => "Stop server", "SelectBackup" => "Select a backup", _ => "Open Activity" };
@@ -258,14 +265,21 @@ public sealed class WorkspaceModel : INotifyPropertyChanged
     public string ErrorDestination => errorDestination;
     public string Announcement => announcement;
     public void Announce(string message) { Set(ref announcement, message, nameof(Announcement)); }
-    public void ReportError(string summary, string detail, string destination = "Activity", string actionText = "Open Activity")
+    private string? errorOwner;
+    public void ReportError(string summary, string detail, string destination = "Activity", string actionText = "Open Activity", string? owner = null)
     {
+        errorOwner = owner;
         errorSummary = summary; errorDetail = detail; errorDestination = destination; errorActionText = actionText;
         RefreshError(); Announce($"{summary}. {actionText}.");
     }
     public void ClearError()
     {
+        errorOwner = null;
         errorSummary = errorDetail = errorDestination = errorActionText = ""; RefreshError();
+    }
+    public void ClearErrorFor(string owner)
+    {
+        if (errorOwner == owner) ClearError();
     }
     private void RefreshError()
     {
@@ -277,7 +291,7 @@ public sealed class WorkspaceModel : INotifyPropertyChanged
     public string PageTitle { get => pageTitle; set => Set(ref pageTitle, value); }
     private string status = "Not connected";
     public string Status { get => status; set => Set(ref status, value); }
-    private string players = "—", cpu = "—", memory = "—", uptime = "—", diskFree = "—", build = "Not checked yet", backup = "No recovery points yet", automation = "Automation is off", notice = "Ready. Connect a server to get started.", activity = "", diagnostics = "Select a server, then refresh diagnostics.", nextUpdate = "Not scheduled", nextBackup = "Not scheduled";
+    private string players = "-", cpu = "-", memory = "-", uptime = "-", diskFree = "-", build = "Not checked yet", backup = "No recovery points yet", automation = "Automation is off", notice = "Ready. Create a server or import a world to get started.", activity = "", diagnostics = "Select a server, then refresh diagnostics.", nextUpdate = "Not scheduled", nextBackup = "Not scheduled";
     public string Players { get => players; set => Set(ref players, value); }
     public string Cpu { get => cpu; set => Set(ref cpu, value); }
     public string Memory { get => memory; set => Set(ref memory, value); }

@@ -6,7 +6,14 @@ using Wyrmwatch.Agent;
 
 var workspaceIndex = Array.IndexOf(args, "--workspace");
 var workspace = workspaceIndex >= 0 && workspaceIndex + 1 < args.Length ? Path.GetFullPath(args[workspaceIndex + 1]) : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Wyrmwatch");
-using var lease = WorkspaceLease.Acquire(workspace);
+FileStream acquiredLease;
+try { acquiredLease = WorkspaceLease.Acquire(workspace); }
+catch (IOException error) when (error.Message == WorkspaceLease.OwnershipFailureMessage)
+{
+    Console.Error.WriteLine(error.Message);
+    return 1;
+}
+using var lease = acquiredLease;
 WorkspaceLease.Protect(workspace);
 var store = new JsonStore(workspace);
 var manager = new ManagerHost(store);
@@ -23,3 +30,4 @@ WorkspaceLease.Protect(Path.Combine(workspace, "agent.json"));
 var monitor = manager.MonitorAsync(app.Lifetime.StopApplication, app.Lifetime.ApplicationStopping);
 await app.WaitForShutdownAsync();
 await monitor;
+return 0;

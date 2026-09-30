@@ -164,6 +164,7 @@ public partial class MainWindow : Window
     private void UpdateRows()
     {
         model.SyncRows();
+        model.UpdateStartPrerequisites(service!.Servers);
         foreach (var row in model.ServerRows)
         {
             var managed = service!.Servers.FirstOrDefault(s => s.Id == row.Id);
@@ -241,10 +242,22 @@ public partial class MainWindow : Window
         }
         catch (Exception e)
         {
-            if (model.SelectedProfile?.Id == profile.Id) model.FailRefresh(e.Message);
-            if (result is null) { model.Notice = e.Message; ReportOperationFailure(title, e); FinishTrackedOperation(title + " failed", false); }
+            if (result is null)
+            {
+                // A refused request does not establish an inspection failure.
+                // Read current state without retrying the action or relaxing its gate.
+                try
+                {
+                    var state = await service.ObserveAsync(profile, closing.Token);
+                    if (model.SelectedProfile?.Id == profile.Id) ApplyServerState(state);
+                    UpdateRows();
+                }
+                catch (Exception observationError) { if (model.SelectedProfile?.Id == profile.Id) model.FailRefresh(observationError.Message); }
+                model.Notice = e.Message; ReportOperationFailure(title, e); FinishTrackedOperation(title + " failed", false);
+            }
             else
             {
+                if (model.SelectedProfile?.Id == profile.Id) model.FailRefresh(e.Message);
                 model.Notice = result;
                 model.ReportError(title + " request completed; resulting state could not be verified.", e.Message, "Refresh", "Retry server check");
                 FinishTrackedOperation(result, false, "State unverified");
@@ -296,10 +309,11 @@ public partial class MainWindow : Window
             report("Downloading and configuring the new server… Progress is recorded in Activity.");
             var profile = await service.CreateServerAsync(plan);
             await AddProfileAsync(profile);
+            model.ClearErrorFor(SetupErrorOwner(plan.Profile.InstallPath));
             model.Notice = "Server created. Press Start when ready. Automation is off.";
             FinishTrackedOperation(model.Notice, true);
         }
-        catch (Exception error) { ReportOperationFailure("Server setup", error); FinishTrackedOperation("Server setup failed", false); throw; }
+        catch (Exception error) { ReportOperationFailure("Server setup", error, SetupErrorOwner(plan.Profile.InstallPath)); FinishTrackedOperation("Server setup failed", false); throw; }
         finally { activeSetupReport = null; model.Busy = service.Busy; RefreshHistory(); }
     }
     private async Task ImportWorldAsync(ServerCreationPlan plan, WorldImportPlan source, Action<string> report)
@@ -311,10 +325,11 @@ public partial class MainWindow : Window
         {
             report("Downloading a separate server and copying the reviewed world. Source files are preserved. Progress is recorded in Activity.");
             await AddProfileAsync(await service!.ImportWorldAsync(plan, source, true));
+            model.ClearErrorFor(SetupErrorOwner(plan.Profile.InstallPath));
             model.Notice = "World imported into a new, stopped connection. Verify the world after Start; automation is off.";
             FinishTrackedOperation(model.Notice, true);
         }
-        catch (Exception error) { ReportOperationFailure("World import", error); FinishTrackedOperation("World import failed", false); throw; }
+        catch (Exception error) { ReportOperationFailure("World import", error, SetupErrorOwner(plan.Profile.InstallPath)); FinishTrackedOperation("World import failed", false); throw; }
         finally { activeSetupReport = null; model.Busy = service.Busy; }
     }
     private async Task AddProfileAsync(ServerProfile profile)
@@ -336,10 +351,11 @@ public partial class MainWindow : Window
         {
             report("Verifying the prepared files and saving their connection. No files are copied or downloaded.");
             await AddProfileAsync(await service.ResumePreparedSetupAsync(setup.Profile.InstallPath, setup.ReceiptToken));
+            model.ClearErrorFor(SetupErrorOwner(setup.Profile.InstallPath));
             model.Notice = "Prepared setup recovered. Server stopped; files preserved and automation off.";
             FinishTrackedOperation(model.Notice, true);
         }
-        catch (Exception error) { ReportOperationFailure("Prepared setup recovery", error); FinishTrackedOperation("Prepared setup recovery failed", false); throw; }
+        catch (Exception error) { ReportOperationFailure("Prepared setup recovery", error, SetupErrorOwner(setup.Profile.InstallPath)); FinishTrackedOperation("Prepared setup recovery failed", false); throw; }
         finally { activeSetupReport = null; model.Busy = service.Busy; }
     }
     private async Task ShowSetupErrorAsync(string title, string message)

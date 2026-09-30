@@ -206,6 +206,7 @@
     "Ui.3a34a6ac581d": "Create first backup",
     "Ui.297ef4c79b4b": "Reduce motion",
     "Ui.c12d62ac8052": "Keeps feedback immediate and turns off optional hover transitions. Enabled by default.",
-    "Ui.d0dd93a5b58d": "Automatic maintenance is opt-in. Save changes to apply these settings. Verify your world before enabling maintenance."
+    "Ui.d0dd93a5b58d": "Automatic maintenance is opt-in. Save changes to apply these settings. Verify your world before enabling maintenance.",
+    "Ui.0eace834cc83": "Create a server or import a world save into a new managed installation. The source world stays unchanged."
   }
 }

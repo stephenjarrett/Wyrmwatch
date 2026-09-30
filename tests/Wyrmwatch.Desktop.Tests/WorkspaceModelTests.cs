@@ -5,6 +5,36 @@ namespace Wyrmwatch.Desktop.Tests;
 
 public class WorkspaceModelTests
 {
+    [Fact]
+    public void AnotherObservedServerBlocksStartWithDestinationAndUnknownStateStaysBlocked()
+    {
+        var model = Server(); model.ServerRunning = false;
+        var other = new ManagedServer("other", "Other running fixture", ServerSnapshot.Offline with { Running = true }, new(), null);
+        model.UpdateStartPrerequisites([other]);
+        Assert.False(model.CanStart); Assert.Contains(other.Name, model.StartHint);
+        Assert.Equal("RunningServer", model.StartHelpDestination); Assert.Contains(other.Name, model.StartHelpText);
+        model.UpdateStartPrerequisites([other with { State = ServerSnapshot.Offline with { Accessible = false } }]);
+        Assert.False(model.CanStart); Assert.Equal("Refresh", model.StartHelpDestination);
+        model.UpdateStartPrerequisites([other with { State = ServerSnapshot.Offline }]);
+        Assert.True(model.CanStart);
+    }
+
+    [Fact]
+    public void SuccessfulSetupClearsOnlyItsOwnPriorFailure()
+    {
+        var model = new WorkspaceModel();
+        model.ReportError("World import stopped", "Fixture failure", owner: "setup:one");
+        model.ClearErrorFor("setup:two");
+        Assert.True(model.HasError);
+        model.ClearErrorFor("setup:one");
+        Assert.False(model.HasError);
+        model.ReportError("World import stopped", "Fixture failure", owner: "setup:one");
+        model.ReportError("Backup verification needs attention", "Unrelated fixture error", "Backups");
+        model.ClearErrorFor("setup:one");
+        Assert.True(model.HasError); Assert.Equal("Backups", model.ErrorDestination);
+        Assert.Equal("Backup verification needs attention", model.ErrorSummary);
+    }
+
     private static readonly DateTimeOffset Clock = new(2026, 9, 30, 12, 0, 0, TimeSpan.Zero);
     private static WorkspaceModel Server() => new() { SelectedProfile = new ServerProfile { Id = "fixture", Name = "Fixture server" } };
 

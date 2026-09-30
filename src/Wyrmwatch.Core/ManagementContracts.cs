@@ -32,11 +32,12 @@ public static class AccessPolicy
 
 public static class WorkspaceLease
 {
+    public const string OwnershipFailureMessage = "A background manager already owns this workspace.";
     public static FileStream Acquire(string directory)
     {
         Directory.CreateDirectory(directory); SafePaths.NoLinks(directory);
         try { return new FileStream(Path.Combine(directory, "agent.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None); }
-        catch (IOException) { throw new IOException("A background manager already owns this workspace."); }
+        catch (IOException) { throw new IOException(OwnershipFailureMessage); }
     }
     public static void Protect(string path)
     {

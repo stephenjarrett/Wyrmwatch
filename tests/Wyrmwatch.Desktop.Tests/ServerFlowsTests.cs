@@ -141,10 +141,18 @@ public class ServerFlowsTests
         await fixture.Window.RefreshServersAsync(); Assert.True(model.CanStop); Assert.False(model.CanStart);
         // Selecting another saved server cannot launch a second process while Beta runs.
         await SelectAsync(fixture, 0);
-        Click(window, Field<Button>(window, "StartButton"));
-        await Until(() => model.Notice.Contains("Another saved server is running"));
+        Assert.False(Field<Button>(window, "StartButton").IsEnabled);
+        Assert.Contains(beta.Name, model.StartHint);
+        Assert.Equal("RunningServer", model.StartHelpDestination);
+        Capture(window, "start-blocked-other-running.png");
+        using (var direct = fixture.Client())
+        {
+            var refusal = await Assert.ThrowsAsync<IOException>(() => direct.StartAsync(created));
+            Assert.Contains("Another saved server is running", refusal.Message);
+        }
         Assert.False(fixture.Runtime.Running(created)); Assert.Equal(1, fixture.Runtime.Starts);
-        await SelectAsync(fixture, 1);
+        Click(window, Field<Button>(window, "StartPrerequisiteButton"));
+        await Until(() => model.SelectedProfile?.Id == beta.Id && model.CanStop);
         Click(window, Field<Button>(window, "StopButton")); await Accept(window, "Stop server");
         await Until(() => !fixture.Runtime.Running(beta) && !model.Busy);
         await WaitState(fixture, false);
@@ -260,10 +268,53 @@ public class ServerFlowsTests
         Assert.Empty(fixture.Store.Read("settings.json", () => new ManagerSettings()).Servers);
         var partial = Directory.GetDirectories(Path.Combine(fixture.Store.DirectoryPath, "WyrmwatchServers"), "retry-test.setup-*").Single();
         Assert.Equal("partial download", File.ReadAllText(Path.Combine(partial, "partial.txt")));
+        Assert.Equal("Setup did not finish", Field<TextBlock>(dialog, "CreateReviewHeading").Text);
+        Click(dialog, Field<Button>(dialog, "CreateBack"));
+        Click(dialog, Field<Button>(dialog, "CreateNext"));
+        await Until(() => Equals(Field<Button>(dialog, "CreateNext").Content, "Create Server"));
+        Assert.Equal("Review setup", Field<TextBlock>(dialog, "CreateReviewHeading").Text);
+        Assert.True(Field<StackPanel>(dialog, "CreateStructuredReview").IsEffectivelyVisible);
         Click(dialog, Field<Button>(dialog, "CreateNext"));
         await Until(() => Equals(Field<Button>(dialog, "CreateNext").Content, "Close"));
         Assert.Single(fixture.Store.Read("settings.json", () => new ManagerSettings()).Servers);
         Assert.Equal("partial download", File.ReadAllText(Path.Combine(partial, "partial.txt")));
+        Assert.Equal(2, fixture.Steam.Installs); Assert.Equal(0, fixture.Runtime.Starts);
+        Click(dialog, Field<Button>(dialog, "CreateNext"));
+    }
+
+    [AvaloniaFact]
+    public async Task FailedImportBackThenReviewResetsHeadingAndPreservesSourceBeforeRetry()
+    {
+        await using var fixture = await Lab.StartAsync();
+        var existing = fixture.Existing("Stopped import retry source");
+        var source = Path.Combine(existing.SavedPath, "SaveGames", "beta.sav");
+        var original = File.ReadAllBytes(source);
+        fixture.Steam.FailNext = true;
+        Click(fixture.Window, Field<Button>(fixture.Window, "ImportServerButton"));
+        var dialog = await Owned<CreateServerDialog>(fixture.Window);
+        await FillImportAsync(dialog, fixture, "Import after installer failure", source);
+        Click(dialog, Field<Button>(dialog, "CreateNext"));
+        await Until(() => Field<TextBlock>(dialog, "CreateMessage").Text!.Contains("fixture download failed"));
+        Assert.Equal("Setup did not finish", Field<TextBlock>(dialog, "CreateReviewHeading").Text);
+        Assert.Empty(fixture.Store.Read("settings.json", () => new ManagerSettings()).Servers);
+        var model = (WorkspaceModel)fixture.Window.DataContext!;
+        Assert.True(model.HasError); Assert.Contains("World import stopped", model.ErrorSummary);
+        Assert.Equal(original, File.ReadAllBytes(source));
+        Click(dialog, Field<Button>(dialog, "CreateBack"));
+        Click(dialog, Field<Button>(dialog, "CreateNext"));
+        await Until(() => Equals(Field<Button>(dialog, "CreateNext").Content, "Import World"));
+        Assert.Equal("Review setup", Field<TextBlock>(dialog, "CreateReviewHeading").Text);
+        Assert.True(Field<StackPanel>(dialog, "CreateStructuredReview").IsEffectivelyVisible);
+        Assert.True(Field<Button>(dialog, "CreateNext").IsEnabled);
+        Assert.True(string.IsNullOrEmpty(Field<TextBlock>(dialog, "CreateMessage").Text));
+        Capture(dialog, "import-retry-review.png");
+        Assert.Equal(1, fixture.Steam.Installs); Assert.Equal(0, fixture.Runtime.Starts);
+        Click(dialog, Field<Button>(dialog, "CreateNext"));
+        await Until(() => Equals(Field<Button>(dialog, "CreateNext").Content, "Close"));
+        var profile = model.SelectedProfile!;
+        Assert.False(model.HasError); Assert.Contains("Completed", model.LastCompletion);
+        Assert.Equal(original, File.ReadAllBytes(source));
+        Assert.Equal(original, File.ReadAllBytes(Path.Combine(profile.SavedPath, "SaveGames", "beta.sav")));
         Assert.Equal(2, fixture.Steam.Installs); Assert.Equal(0, fixture.Runtime.Starts);
         Click(dialog, Field<Button>(dialog, "CreateNext"));
     }

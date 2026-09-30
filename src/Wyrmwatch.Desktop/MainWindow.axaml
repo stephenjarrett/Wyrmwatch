@@ -64,7 +64,7 @@
               </StackPanel>
             </Grid>
             <Border Classes="card" IsVisible="{Binding NoServer}" Padding="36">
-              <StackPanel Spacing="12"><TextBlock Text="{DynamicResource Ui.7846930c4f25}" FontSize="23" FontWeight="SemiBold" /><TextBlock Text="{DynamicResource Ui.55e15394161b}" Classes="muted" TextWrapping="Wrap" /><WrapPanel><Button Content="{DynamicResource Ui.c3a13e66b67a}" Classes="primary" Click="NewServer" IsEnabled="{Binding CanManage}" Margin="0,0,8,0" /><Button Content="{DynamicResource Ui.a80faf939cff}" Click="ConnectServer" IsEnabled="{Binding CanManage}" /></WrapPanel></StackPanel>
+              <StackPanel Spacing="12"><TextBlock Text="{DynamicResource Ui.7846930c4f25}" FontSize="23" FontWeight="SemiBold" /><TextBlock x:Name="EmptyServersHint" Text="{DynamicResource Ui.0eace834cc83}" Classes="muted" TextWrapping="Wrap" /><WrapPanel><Button Content="{DynamicResource Ui.c3a13e66b67a}" Classes="primary" Click="NewServer" IsEnabled="{Binding CanManage}" Margin="0,0,8,0" /><Button Content="{DynamicResource Ui.a80faf939cff}" Click="ConnectServer" IsEnabled="{Binding CanManage}" /></WrapPanel></StackPanel>
             </Border>
             <ListBox x:Name="ServersList" Classes="servers" ItemsSource="{Binding ServerRows}" SelectedItem="{Binding SelectedRow}" SelectionChanged="ServerRowSelected" IsVisible="{Binding HasServer}" Background="Transparent" BorderThickness="0" MaxHeight="250" IsEnabled="{Binding CanManage}">
               <ListBox.ItemTemplate><DataTemplate><Grid ColumnDefinitions="*,Auto" ColumnSpacing="20" Margin="12,10">
