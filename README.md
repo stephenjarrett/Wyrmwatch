@@ -1,16 +1,41 @@
+<img src="src/Wyrmwatch.Desktop/Assets/wyrmwatch.svg" alt="Wyrmwatch logo" width="72" align="right" />
+
 # Wyrmwatch
+
+[![Windows and Linux checks](https://github.com/stephenjarrett/Wyrmwatch/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/stephenjarrett/Wyrmwatch/actions/workflows/build.yml)
 
 A focused desktop manager for RuneScape: Dragonwilds dedicated servers. Built in C# on .NET 10 and Avalonia, with Windows and Linux interfaces from one codebase.
 
-An unofficial community tool, not affiliated with Jagex.
+[**Download for Windows & Linux**](https://github.com/stephenjarrett/Wyrmwatch/releases/latest) · [Installation guide](docs/installing.md) · [Import an existing server](#use-an-existing-server) · [Contribute](CONTRIBUTING.md)
 
-## License and contributions
+An unofficial community tool, not affiliated with Jagex. Licensed [AGPL-3.0-only](LICENSE).
 
-Wyrmwatch is open source under the [GNU Affero General Public License, version 3](LICENSE) (`AGPL-3.0-only`). You may use, modify, fork, and redistribute it, including commercially, subject to the license's source-sharing and notice requirements. See [NOTICE](NOTICE) for the copyright and license grant.
+![Wyrmwatch dark dashboard showing the demo server, player count, CPU, memory, uptime, and maintenance controls](docs/images/overview-dark.png)
 
-Anyone can contribute through issues and pull requests; see [CONTRIBUTING.md](CONTRIBUTING.md). Contributions back to this repository are encouraged, not required by the license. Distributing covered binaries requires providing the corresponding source under the AGPL's terms. If you modify the program and let users interact with it remotely over a network, section 13 requires offering those users the corresponding source. Third-party components retain their [own licenses](THIRD-PARTY-NOTICES.md).
+*Screenshots show Wyrmwatch 0.2.1 running on Linux in built-in demo mode. Metrics are illustrative and server actions are disabled. Windows uses the same Avalonia interface.*
 
-Portable builds include `Wyrmwatch-source.zip` containing the project source and build scripts, plus `SOURCE.md` with the build revision. The application is provided without warranty.
+<details>
+<summary><strong>More screenshots: resource monitoring, automation, and light theme</strong></summary>
+
+### Resource monitoring
+
+CPU and memory history, with free space on the selected server's drive.
+
+![Resource page with CPU and memory history charts and free disk space](docs/images/resources.png)
+
+### Updates and scheduled backups
+
+Set update checks, an optional maintenance window, backup frequency, and retention. Automatic maintenance starts off; updates wait for an empty server.
+
+![Automation page showing update checks, maintenance window, backup interval, and archive retention](docs/images/automation.png)
+
+### Light theme
+
+Choose dark, light, or the system theme in Settings.
+
+![Wyrmwatch overview dashboard in the light theme](docs/images/overview-light.png)
+
+</details>
 
 ## Features
 
@@ -95,3 +120,11 @@ dotnet run --project src/Wyrmwatch.Desktop -- --demo
 Focused checks cover backup integrity and restore preservation, update failures and deferral, configuration preservation, a disposable Windows console shutdown, remote authorization and revocation, background lifecycle, app-package integrity, and desktop navigation/theme/language flows. All game-data fixtures are temporary. No tests use a real server. GitHub Actions runs the same checks and packages both targets. Publishing a `v*` tag invokes the release workflow; it rejects a tag that does not match the project version.
 
 `Wyrmwatch.Core` is independent of the UI. `Wyrmwatch.Platform` contains both process adapters (Windows and Linux); `Wyrmwatch.Signal` is the Windows console helper. `Wyrmwatch.Agent` runs maintenance and the optional remote dashboard. `Wyrmwatch.Desktop` contains the Avalonia interface. Linux desktop, package, service restart, and process control checks run against disposable fixtures; actual game hosting still requires separate validation.
+
+## License and contributions
+
+Wyrmwatch is open source under the [GNU Affero General Public License, version 3](LICENSE) (`AGPL-3.0-only`). You may use, modify, fork, and redistribute it, including commercially, subject to the license's source-sharing and notice requirements. See [NOTICE](NOTICE) for the copyright and license grant.
+
+Anyone can contribute through issues and pull requests; see [CONTRIBUTING.md](CONTRIBUTING.md). Contributions back to this repository are encouraged, not required by the license. Distributing covered binaries requires providing the corresponding source under the AGPL's terms. If you modify the program and let users interact with it remotely over a network, section 13 requires offering those users the corresponding source. Third-party components retain their [own licenses](THIRD-PARTY-NOTICES.md).
+
+Portable builds include `Wyrmwatch-source.zip` containing the project source and build scripts, plus `SOURCE.md` with the build revision. The application is provided without warranty.
