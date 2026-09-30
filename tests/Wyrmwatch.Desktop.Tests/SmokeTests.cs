@@ -17,7 +17,11 @@ namespace Wyrmwatch.Desktop.Tests;
 
 public class TestApp
 {
-    public static AppBuilder BuildAvaloniaApp() => AppBuilder.Configure<App>().WithInterFont().UseSkia().UseHeadless(new AvaloniaHeadlessPlatformOptions { UseHeadlessDrawing = false });
+    public static AppBuilder BuildAvaloniaApp() => Program.ConfigureFonts(AppBuilder.Configure<App>()).UseSkia()
+        .UseHeadless(new AvaloniaHeadlessPlatformOptions { UseHeadlessDrawing = false })
+        // An empty system collection forces every rendered UI flow to use bundled fonts.
+        .AfterSetup(_ => FontManager.Current.AddFontCollection(new Avalonia.Media.Fonts.EmbeddedFontCollection(
+            new Uri("fonts:SystemFonts"), new Uri("avares://Wyrmwatch.Desktop/Assets/NoSystemFonts"))));
 }
 public class SmokeTests
 {

@@ -1,7 +1,7 @@
 <Application xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" x:Class="Wyrmwatch.Desktop.App" RequestedThemeVariant="Dark">
   <Application.Styles>
     <FluentTheme />
-    <Style Selector="Window"><Setter Property="FontFamily" Value="Inter, Segoe UI" /><Setter Property="FontSize" Value="14" /><Setter Property="Background" Value="{DynamicResource CanvasBrush}" /></Style>
+    <Style Selector="Window"><Setter Property="FontFamily" Value="fonts:Inter#Inter" /><Setter Property="FontSize" Value="14" /><Setter Property="Background" Value="{DynamicResource CanvasBrush}" /></Style>
     <Style Selector="TextBlock"><Setter Property="Foreground" Value="{DynamicResource TextBrush}" /></Style>
     <Style Selector="TextBlock.muted"><Setter Property="Foreground" Value="{DynamicResource MutedBrush}" /></Style>
     <Style Selector="TextBlock.eyebrow"><Setter Property="Foreground" Value="{DynamicResource MutedBrush}" /><Setter Property="FontSize" Value="11" /><Setter Property="FontWeight" Value="SemiBold" /><Setter Property="LetterSpacing" Value="1.4" /></Style>

@@ -1,4 +1,5 @@
 using Avalonia;
+using Avalonia.Media;
 
 namespace Wyrmwatch.Desktop;
 
@@ -30,5 +31,7 @@ internal static class Program
         try { BuildAvaloniaApp().StartWithClassicDesktopLifetime(args); }
         finally { singleInstance.ReleaseMutex(); singleInstance.Dispose(); }
     }
-    public static AppBuilder BuildAvaloniaApp() => AppBuilder.Configure<App>().UsePlatformDetect().WithInterFont().LogToTrace();
+    internal static AppBuilder ConfigureFonts(AppBuilder builder) => builder.WithInterFont()
+        .With(new FontManagerOptions { DefaultFamilyName = "fonts:Inter#Inter" });
+    public static AppBuilder BuildAvaloniaApp() => ConfigureFonts(AppBuilder.Configure<App>().UsePlatformDetect()).LogToTrace();
 }
