@@ -16,10 +16,10 @@ public sealed class ServerRow(ServerProfile profile) : INotifyPropertyChanged
     public string Status { get; private set; } = "Checking…";
     public string Metrics { get; private set; } = "Waiting for the manager";
     public void Replace(ServerProfile value) { if (profile == value) return; profile = value; PropertyChanged?.Invoke(this, new(null)); }
-    public void Update(ServerSnapshot? state)
+    public void Update(ServerSnapshot? state, bool recoveryRequired = false)
     {
-        var status = state is null ? "Checking…" : !state.Accessible ? "Needs attention" : state.Running ? "Running" : "Stopped";
-        var metrics = state is null ? "Waiting for the manager" : !state.Accessible ? state.ActivityReason : !state.Running ? $"UDP {profile.Port} · {(File.Exists(profile.Launcher) ? "Ready to start" : "Launcher missing")}" : $"{state.Players?.ToString() ?? "?"} players · CPU {state.CpuPercent:0.0}% · {state.MemoryBytes / 1073741824d:0.0} GB";
+        var status = recoveryRequired ? "Recovery required" : state is null ? "Checking…" : !state.Accessible ? "Needs attention" : state.Running ? "Running" : "Stopped";
+        var metrics = recoveryRequired ? "Interrupted restore — recover it from Backups before starting." : state is null ? "Waiting for the manager" : !state.Accessible ? state.ActivityReason : !state.Running ? $"UDP {profile.Port} · {(File.Exists(profile.Launcher) ? "Ready to start" : "Launcher missing")}" : $"{state.Players?.ToString() ?? "?"} players · CPU {state.CpuPercent:0.0}% · {state.MemoryBytes / 1073741824d:0.0} GB";
         if (Status == status && Metrics == metrics) return;
         Status = status; Metrics = metrics; PropertyChanged?.Invoke(this, new(null));
     }
@@ -27,6 +27,8 @@ public sealed class ServerRow(ServerProfile profile) : INotifyPropertyChanged
 
 public sealed record BackupRow(BackupInfo Info)
 {
+    public bool IncludesWorld => BackupEngine.Coverage(Info.Manifest).IncludesWorld;
+    public string Coverage => BackupEngine.Coverage(Info.Manifest).Description;
     public string Title => Info.Manifest.Created.ToLocalTime().ToString("MMM d, yyyy · h:mm tt");
     public string Detail => $"{Info.Manifest.Reason} · {Info.Manifest.Files.Count} files · {(Info.Manifest.WasRunning ? "Live snapshot" : "Stopped snapshot")}";
     public string Size => $"{Info.Bytes / 1024d / 1024d:0.0} MB";
@@ -66,21 +68,37 @@ public sealed class WorkspaceModel : INotifyPropertyChanged
     public bool NoServer => !HasServer;
     public string ServerName => SelectedProfile?.Name ?? "No server connected";
     public string ServerPath => SelectedProfile?.InstallPath ?? "";
+    private bool recoveryPending;
+    public bool RecoveryPending { get => recoveryPending; set { Set(ref recoveryPending, value); RefreshActions(); } }
+    public string RecoveryHint => "An interrupted restore needs recovery. Start, configuration changes and updates are blocked. Open Backups and recover the interrupted restore while the server is stopped; retained files remain available.";
     private bool busy;
     public bool Busy { get => busy; set { Set(ref busy, value); RefreshActions(); } }
-    public bool CanAct => HasServer && !Busy && !Program.Demo;
+    public bool CanAct => HasServer && !Busy && !Program.Demo && !RecoveryPending;
+    public bool CanRecover => HasServer && !Busy && !Program.Demo && RecoveryPending && ServerRunning == false;
     private bool? serverRunning;
     public bool? ServerRunning { get => serverRunning; set { Set(ref serverRunning, value); RefreshActions(); } }
     public bool CanStart => CanAct && ServerRunning == false;
-    public bool CanStop => CanAct && ServerRunning == true;
+    public bool CanStop => HasServer && !Busy && !Program.Demo && ServerRunning == true;
+    public bool CanRestart => CanAct && ServerRunning == true;
+    public bool CanRestore => CanAct && ServerRunning == false;
+    private bool installedBuildKnown;
+    public bool InstalledBuildKnown { get => installedBuildKnown; set { Set(ref installedBuildKnown, value); RefreshActions(); } }
+    public bool CanUpdate => CanAct && InstalledBuildKnown;
+    public string UpdateHint => InstalledBuildKnown ? "Game updates require a verified backup and no connected players. Unknown player activity defers the update." : "Apply game update is unavailable until the installed Steam build is known. Check for updates to review build information; no server files are changed by the check.";
     public bool CanConfigure => CanStart;
-    public string ConfigurationHint => !HasServer ? "Choose a server to edit its settings." : ServerRunning switch
+    public string ConfigurationHint => !HasServer ? "Choose a server to edit its settings." : RecoveryPending ? RecoveryHint : ServerRunning switch
     {
         true => "Stop this server before saving game configuration. You can review and edit the fields now.",
         false => "This server is stopped. Existing settings are backed up before changes are saved.",
         _ => "Waiting for a verified server state before game configuration can be saved."
     };
-    private void RefreshActions() { foreach (var name in new[] { nameof(CanAct), nameof(CanStart), nameof(CanStop), nameof(CanConfigure), nameof(CanManage), nameof(ConfigurationHint) }) Refresh(name); }
+    public string ActionHint => !HasServer ? "Choose a server to see available actions." : Busy ? "An operation is in progress. Wait for it to finish before changing this server." : RecoveryPending ? RecoveryHint : ServerRunning switch
+    {
+        true => "Stop and Restart request a graceful shutdown after a backup. Connected players will be disconnected.",
+        false => "The server is stopped. Start launches this connection; Stop and Restart become available when it is running.",
+        _ => "Waiting for a verified server state. Start, Stop and configuration changes are unavailable until the check finishes."
+    };
+    private void RefreshActions() { foreach (var name in new[] { nameof(CanAct), nameof(CanStart), nameof(CanStop), nameof(CanRestart), nameof(CanRestore), nameof(CanConfigure), nameof(CanManage), nameof(CanRecover), nameof(CanUpdate), nameof(UpdateHint), nameof(ConfigurationHint), nameof(ActionHint) }) Refresh(name); }
     private bool showServerPicker = true;
     public bool ShowServerPicker { get => showServerPicker; set => Set(ref showServerPicker, value); }
     private string pageTitle = "Servers";

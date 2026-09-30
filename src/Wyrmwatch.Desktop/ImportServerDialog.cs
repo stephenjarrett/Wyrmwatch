@@ -10,7 +10,7 @@ namespace Wyrmwatch.Desktop;
 public sealed class ImportServerDialog : Window
 {
     private readonly TextBox location = new() { Name = "ImportLocation" };
-    private readonly TextBox saved = new() { Name = "ImportSavedFolder", IsReadOnly = true };
+    private readonly TextBox saved = new() { Name = "ImportSavedFolder", IsReadOnly = true, TextWrapping = TextWrapping.Wrap };
     private readonly CheckBox customSaved = new() { Name = "ImportCustomSaved", Content = "Use a different existing Saved folder" };
     private readonly TextBox backups = new() { Name = "ImportBackupFolder" };
     private readonly TextBlock details = new() { Name = "ImportDetails", Text = "Choose the folder containing RSDragonwildsServer.", TextWrapping = TextWrapping.Wrap };
@@ -27,6 +27,8 @@ public sealed class ImportServerDialog : Window
     public ImportServerDialog(string launcher, IReadOnlyList<ServerProfile> connections, Func<ServerProfile, Task>? submit = null)
     {
         this.connections = connections; this.submit = submit;
+        foreach (var field in new[] { location, saved, backups })
+            field.PropertyChanged += (_, change) => { if (change.Property == TextBox.TextProperty) ToolTip.SetTip(field, field.Text); };
         Title = "Import existing server"; Width = 640; Height = 740; MinHeight = 480;
         ShowInTaskbar = false; WindowStartupLocation = WindowStartupLocation.CenterOwner;
         location.Text = launcher;

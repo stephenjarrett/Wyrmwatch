@@ -130,6 +130,7 @@ public sealed class AgentClient(string workspace) : IDisposable
     public Task<string> UpdateAsync(ServerProfile p) => ActionAsync(p, new("update"));
     public Task<string> InstallAsync(ServerProfile p) => ActionAsync(p, new("install"));
     public Task<string> RestoreAsync(ServerProfile p, string archive) => ActionAsync(p, new("restore", Path.GetFileName(archive), Confirmation: p.Name));
+    public Task<string> RecoverAsync(ServerProfile p) => ActionAsync(p, new("recover", Confirmation: p.Name));
     public Task<string> SaveConfigurationAsync(ServerProfile p, IReadOnlyDictionary<string, string> values) => ActionAsync(p, new("configuration", Values: values.ToDictionary()));
     public async Task<ServerProfile> SaveProfileAsync(ServerProfile p)
     {
@@ -140,6 +141,7 @@ public sealed class AgentClient(string workspace) : IDisposable
     public Task SavePreferencesAsync(ManagerSettings settings) => SendAsync("admin/preferences", HttpMethod.Put, settings);
     public Task<ServerProfile> ImportProfileAsync(ServerProfile profile) => PostAsync<ServerProfile>("admin/import", profile);
     public Task<ServerProfile> CreateServerAsync(ServerCreationPlan plan) => PostAsync<ServerProfile>("admin/create", new CreateServerRequest(plan.Profile, plan.Configuration.ToDictionary()));
+    public Task<ServerProfile> ImportWorldAsync(ServerCreationPlan plan, WorldImportPlan source, bool sourceStoppedConfirmed) => PostAsync<ServerProfile>("admin/import-world", new WorldImportRequest(plan.Profile, plan.Configuration.ToDictionary(), source, sourceStoppedConfirmed));
     public IReadOnlyList<ManagedServer> Servers => status.Servers;
     public async Task StopAgentAsync()
     {

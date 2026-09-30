@@ -4,6 +4,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Runtime.Versioning;
+using Microsoft.Win32.SafeHandles;
 using Wyrmwatch.Core;
 
 namespace Wyrmwatch.Platform;
@@ -14,6 +15,7 @@ public sealed class WindowsRuntime(JsonStore store, string signalHelper) : IServ
     private readonly Dictionary<string, List<ProcessIdentity>> owned = store.Read("owned-processes.json", () => new Dictionary<string, List<ProcessIdentity>>());
     private readonly Dictionary<string, (DateTime At, double Cpu)> cpu = [];
     private readonly SemaphoreSlim gate = new(1, 1);
+    private readonly Dictionary<string, string> jobNames = store.Read("owned-jobs.json", () => new Dictionary<string, string>());
     public async Task<ServerSnapshot> InspectAsync(ServerProfile profile, CancellationToken token = default)
     {
         await gate.WaitAsync(token);
@@ -56,6 +58,11 @@ public sealed class WindowsRuntime(JsonStore store, string signalHelper) : IServ
     {
         if (!owned.TryGetValue(p.Id, out var existing)) return;
         var known = existing.Where(e => found.Any(f => f.Id == e.Id && f.StartUtc == e.StartUtc && SafePaths.Same(f.Path, e.Path))).ToList();
+        // A kernel job survives a launcher exiting; ancestry snapshots alone cannot prove that handoff.
+        using var job = jobNames.TryGetValue(p.Id, out var name) ? NativeProcesses.OpenOwnedJob(name) : null;
+        if (job is { IsInvalid: false, IsClosed: false })
+            foreach (var child in found)
+                if (!known.Contains(child) && NativeProcesses.InJob(child, job)) known.Add(child);
         var parents = NativeProcesses.Parents();
         foreach (var child in found)
         {
@@ -76,9 +83,22 @@ public sealed class WindowsRuntime(JsonStore store, string signalHelper) : IServ
         var config = GameConfiguration.Read(profile.ConfigPath);
         GameConfiguration.Merge("", config); // Validate mandatory values without writing anything.
         SafePaths.NoLinks(profile.Launcher);
-        var identity = NativeProcesses.StartServer(profile);
+        if (!File.Exists(signalHelper)) throw new IOException("The safe process ownership helper is missing. Rebuild the app before starting a server.");
         await gate.WaitAsync(token);
-        try { owned[profile.Id] = [identity]; store.Write("owned-processes.json", owned); }
+        try
+        {
+            var name = "Local\\Wyrmwatch-" + Guid.NewGuid().ToString("N");
+            // Record the job before the suspended launcher can execute or create children.
+            jobNames[profile.Id] = name; store.Write("owned-jobs.json", jobNames);
+            var started = NativeProcesses.StartServer(profile, name);
+            try
+            {
+                owned[profile.Id] = [started.Identity]; store.Write("owned-processes.json", owned);
+                await NativeProcesses.KeepJobAliveAsync(signalHelper, name, store.DirectoryPath, token);
+            }
+            catch { NativeProcesses.AbortBootstrap(started); throw; }
+            NativeProcesses.Resume(started);
+        }
         finally { gate.Release(); }
         await Task.Delay(1500, token);
         var state = await InspectAsync(profile, token);
@@ -148,13 +168,65 @@ public static class PlayerActivity
 [SupportedOSPlatform("windows")]
 internal static class NativeProcesses
 {
-    public static ProcessIdentity StartServer(ServerProfile profile)
+    internal sealed record StartedServer(ProcessIdentity Identity, SafeFileHandle Job, SafeFileHandle Thread, SafeFileHandle Process);
+    public static StartedServer StartServer(ServerProfile profile, string jobName)
     {
+        var job = CreateJobObject(IntPtr.Zero, jobName);
+        if (job.IsInvalid) throw new Win32Exception(Marshal.GetLastWin32Error());
         var startup = new StartupInfo { Size = Marshal.SizeOf<StartupInfo>(), Flags = 1, Show = 0 };
         var command = new StringBuilder($"\"{profile.Launcher}\" -log -NewConsole -Port={profile.Port}");
-        if (!CreateProcess(profile.Launcher, command, IntPtr.Zero, IntPtr.Zero, false, 0x10, IntPtr.Zero, profile.InstallPath, ref startup, out var result)) throw new Win32Exception(Marshal.GetLastWin32Error());
-        try { using var process = Process.GetProcessById((int)result.Id); return new((int)result.Id, process.StartTime.ToUniversalTime(), profile.Launcher); }
-        finally { CloseHandle(result.Thread); CloseHandle(result.Process); }
+        if (!CreateProcess(profile.Launcher, command, IntPtr.Zero, IntPtr.Zero, false, 0x14, IntPtr.Zero, profile.InstallPath, ref startup, out var result)) { job.Dispose(); throw new Win32Exception(Marshal.GetLastWin32Error()); }
+        var processHandle = new SafeFileHandle(result.Process, true); var thread = new SafeFileHandle(result.Thread, true);
+        try
+        {
+            if (!AssignProcessToJobObject(job, processHandle)) throw new Win32Exception(Marshal.GetLastWin32Error());
+            using var process = Process.GetProcessById((int)result.Id);
+            return new(new((int)result.Id, process.StartTime.ToUniversalTime(), profile.Launcher), job, thread, processHandle);
+        }
+        catch
+        {
+            // Only this still-suspended bootstrap is aborted. No game code has run.
+            TerminateProcess(processHandle, 1); thread.Dispose(); processHandle.Dispose(); job.Dispose(); throw;
+        }
+    }
+    public static void Resume(StartedServer started)
+    {
+        try { if (ResumeThread(started.Thread) == uint.MaxValue) { TerminateProcess(started.Process, 1); throw new Win32Exception(Marshal.GetLastWin32Error()); } }
+        finally { started.Thread.Dispose(); started.Process.Dispose(); started.Job.Dispose(); }
+    }
+    public static void AbortBootstrap(StartedServer started)
+    {
+        TerminateProcess(started.Process, 1); started.Thread.Dispose(); started.Process.Dispose(); started.Job.Dispose();
+    }
+    public static async Task KeepJobAliveAsync(string helper, string name, string directory, CancellationToken token)
+    {
+        var ready = Path.Combine(directory, ".job-ready-" + Guid.NewGuid().ToString("N"));
+        SafePaths.NoLinks(ready);
+        var start = new ProcessStartInfo(helper) { UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = Path.GetDirectoryName(helper)! };
+        start.ArgumentList.Add("--keep-job"); start.ArgumentList.Add(name); start.ArgumentList.Add(ready);
+        using var keeper = Process.Start(start) ?? throw new IOException("Could not start the safe process ownership helper.");
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token); deadline.CancelAfter(TimeSpan.FromSeconds(5));
+        try
+        {
+            while (!File.Exists(ready))
+            {
+                if (keeper.HasExited) throw new IOException("The safe process ownership helper exited before startup was released.");
+                await Task.Delay(10, deadline.Token);
+            }
+            deadline.Token.ThrowIfCancellationRequested();
+        }
+        finally { if (File.Exists(ready)) File.Delete(ready); }
+    }
+    public static SafeFileHandle OpenOwnedJob(string name) => OpenJobObject(4, false, name);
+    public static bool InJob(ProcessIdentity identity, SafeFileHandle job)
+    {
+        try
+        {
+            using var process = Process.GetProcessById(identity.Id);
+            if (process.StartTime.ToUniversalTime() != identity.StartUtc || !SafePaths.Same(process.MainModule?.FileName ?? "", identity.Path)) return false;
+            return IsProcessInJob(process.Handle, job, out var member) && member;
+        }
+        catch (Exception e) when (e is ArgumentException or InvalidOperationException or Win32Exception) { return false; }
     }
     public static Dictionary<int, int> Parents()
     {
@@ -172,6 +244,12 @@ internal static class NativeProcesses
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)] private struct ProcessEntry { public uint Size, Usage, Id; public UIntPtr Heap; public uint Module, Threads, ParentId; public int Priority; public uint Flags; [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 260)] public string ExeFile; }
     [DllImport("kernel32.dll", EntryPoint = "CreateProcessW", CharSet = CharSet.Unicode, SetLastError = true)] private static extern bool CreateProcess(string app, StringBuilder command, IntPtr pa, IntPtr ta, bool inherit, uint flags, IntPtr env, string cwd, ref StartupInfo startup, out ProcessInformation process);
     [DllImport("kernel32.dll")] private static extern bool CloseHandle(IntPtr handle);
+    [DllImport("kernel32.dll", EntryPoint = "CreateJobObjectW", CharSet = CharSet.Unicode, SetLastError = true)] private static extern SafeFileHandle CreateJobObject(IntPtr attributes, string name);
+    [DllImport("kernel32.dll", EntryPoint = "OpenJobObjectW", CharSet = CharSet.Unicode, SetLastError = true)] private static extern SafeFileHandle OpenJobObject(uint access, bool inherit, string name);
+    [DllImport("kernel32.dll", SetLastError = true)] private static extern bool AssignProcessToJobObject(SafeFileHandle job, SafeFileHandle process);
+    [DllImport("kernel32.dll", SetLastError = true)] private static extern bool IsProcessInJob(IntPtr process, SafeFileHandle job, out bool member);
+    [DllImport("kernel32.dll", SetLastError = true)] private static extern uint ResumeThread(SafeFileHandle thread);
+    [DllImport("kernel32.dll", SetLastError = true)] private static extern bool TerminateProcess(SafeFileHandle process, uint code);
     [DllImport("kernel32.dll")] private static extern IntPtr CreateToolhelp32Snapshot(uint flags, uint id);
     [DllImport("kernel32.dll", EntryPoint = "Process32FirstW", CharSet = CharSet.Unicode)] private static extern bool Process32First(IntPtr snapshot, ref ProcessEntry entry);
     [DllImport("kernel32.dll", EntryPoint = "Process32NextW", CharSet = CharSet.Unicode)] private static extern bool Process32Next(IntPtr snapshot, ref ProcessEntry entry);

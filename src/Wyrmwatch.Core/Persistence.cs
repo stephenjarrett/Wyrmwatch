@@ -132,3 +132,25 @@ public static class InstallationLease
         catch (IOException) { throw new IOException("Another Wyrmwatch instance is operating on this installation. Wait for it to finish."); }
     }
 }
+
+// A workspace gate alone cannot serialize two managers using the same Saved tree.
+// Both canonical resources remain locked for the complete operation.
+public static class ServerOperationLease
+{
+    public static IDisposable Acquire(ServerProfile profile)
+    {
+        profile.Validate();
+        var installation = InstallationLease.Acquire(profile.InstallPath);
+        try
+        {
+            var saved = SafePaths.Same(profile.InstallPath, profile.SavedPath) ? null : InstallationLease.Acquire(profile.SavedPath);
+            return new Resources(installation, saved);
+        }
+        catch { installation.Dispose(); throw; }
+    }
+
+    private sealed class Resources(FileStream installation, FileStream? saved) : IDisposable
+    {
+        public void Dispose() { saved?.Dispose(); installation.Dispose(); }
+    }
+}

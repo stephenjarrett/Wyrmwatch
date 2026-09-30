@@ -10,6 +10,8 @@ public sealed class LinuxRuntime(JsonStore store) : IServerRuntime
     private readonly SemaphoreSlim gate = new(1, 1);
     private readonly Dictionary<string, List<ProcessIdentity>> owned = store.Read("owned-processes.json", () => new Dictionary<string, List<ProcessIdentity>>());
     private readonly Dictionary<string, (DateTime Time, double Cpu)> previous = [];
+    private sealed record OwnedSession(int Id, string BootId, DateTime StartedUtc);
+    private readonly Dictionary<string, OwnedSession> sessions = store.Read("owned-sessions.json", () => new Dictionary<string, OwnedSession>());
     public async Task<ServerSnapshot> InspectAsync(ServerProfile p, CancellationToken token = default)
     {
         await gate.WaitAsync(token);
@@ -26,6 +28,9 @@ public sealed class LinuxRuntime(JsonStore store) : IServerRuntime
                 try
                 {
                     if (!process.ProcessName.StartsWith("RSDragonwilds", StringComparison.Ordinal)) continue;
+                    // An exited orphan may remain as a zombie until its container/init reaps it.
+                    // Its missing executable is not a permission failure or a running server.
+                    if (ProcFields(process.Id)[0] is "Z" or "X") continue;
                     var path = process.MainModule?.FileName;
                     if (path is null) { accessible = false; continue; }
                     if (!SafePaths.Within(path, p.InstallPath)) continue;
@@ -39,7 +44,11 @@ public sealed class LinuxRuntime(JsonStore store) : IServerRuntime
         if (found.Count == 0) return ServerSnapshot.Offline with { Accessible = accessible, Players = accessible ? 0 : null };
         if (owned.TryGetValue(p.Id, out var registered))
         {
-            var known = registered.Where(IsSame).ToList();
+            // exec changes executable paths, but never changes the kernel lifetime token.
+            var known = found.Where(candidate => registered.Any(i => SameLifetime(i, candidate))).ToList();
+            if (sessions.TryGetValue(p.Id, out var session))
+                foreach (var candidate in found)
+                    if (!known.Contains(candidate) && InOwnedSession(candidate, session)) known.Add(candidate);
             foreach (var candidate in found)
             {
                 if (known.Any(i => SameIdentity(i, candidate))) continue;
@@ -66,6 +75,23 @@ public sealed class LinuxRuntime(JsonStore store) : IServerRuntime
         catch { return false; }
     }
     private static bool SameIdentity(ProcessIdentity a, ProcessIdentity b) => a.Id == b.Id && a.StartToken is not null && a.StartToken == b.StartToken && a.Path == b.Path;
+    private static bool SameLifetime(ProcessIdentity a, ProcessIdentity b) => a.Id == b.Id && a.StartToken is not null && a.StartToken == b.StartToken;
+    private static bool InOwnedSession(ProcessIdentity candidate, OwnedSession session)
+    {
+        try
+        {
+            var fields = ProcFields(candidate.Id);
+            return int.Parse(fields[3]) == session.Id && candidate.StartToken?.StartsWith(session.BootId + ":", StringComparison.Ordinal) == true && candidate.StartUtc >= session.StartedUtc.AddSeconds(-1);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or FormatException or IndexOutOfRangeException) { return false; }
+    }
+    private static string[] ProcFields(int id)
+    {
+        var text = File.ReadAllText($"/proc/{id}/stat");
+        var fields = text[(text.LastIndexOf(')') + 2)..].Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (fields.Length < 4) throw new IOException("Cannot read the process session state.");
+        return fields;
+    }
     public async Task StartAsync(ServerProfile p, CancellationToken token = default)
     {
         p.Validate(); var state = await InspectAsync(p, token);
@@ -74,13 +100,43 @@ public sealed class LinuxRuntime(JsonStore store) : IServerRuntime
         GameConfiguration.Merge("", GameConfiguration.Read(p.ConfigPath));
         SafePaths.NoLinks(p.Launcher);
         var shell = p.Launcher.EndsWith(".sh", StringComparison.Ordinal);
-        var start = new ProcessStartInfo(shell ? "/bin/bash" : p.Launcher) { WorkingDirectory = p.InstallPath, UseShellExecute = false };
-        if (shell) start.ArgumentList.Add(p.Launcher); start.ArgumentList.Add("-log"); start.ArgumentList.Add($"-Port={p.Port}");
+        var setsid = new[] { "/usr/bin/setsid", "/bin/setsid" }.FirstOrDefault(File.Exists) ?? throw new IOException("Safe server startup requires the Linux setsid utility (util-linux).");
+        var start = new ProcessStartInfo(setsid) { WorkingDirectory = p.InstallPath, UseShellExecute = false };
+        // Stop an isolated bootstrap before game code runs, persist ownership, then release it.
+        foreach (var arg in new[] { "/bin/bash", "-c", "kill -STOP $$; exec \"$@\"", "wyrmwatch-start" }) start.ArgumentList.Add(arg);
+        if (shell) start.ArgumentList.Add("/bin/bash");
+        start.ArgumentList.Add(p.Launcher); start.ArgumentList.Add("-log"); start.ArgumentList.Add($"-Port={p.Port}");
         using var process = Process.Start(start) ?? throw new IOException("Could not start server.");
-        var identity = new ProcessIdentity(process.Id, process.StartTime.ToUniversalTime(), process.MainModule!.FileName!, ProcessLifetime.Token(process));
-        await gate.WaitAsync(token);
-        try { owned[p.Id] = [identity]; store.Write("owned-processes.json", owned); }
-        finally { gate.Release(); }
+        try
+        {
+            var until = DateTime.UtcNow.AddSeconds(5);
+            while (true)
+            {
+                token.ThrowIfCancellationRequested();
+                if (process.HasExited) throw new IOException("The safe startup bootstrap exited before ownership was recorded.");
+                var fields = ProcFields(process.Id);
+                if (fields[0] == "T" && int.Parse(fields[3]) == process.Id) break;
+                if (DateTime.UtcNow >= until) throw new IOException("The safe startup bootstrap did not enter its isolated session.");
+                await Task.Delay(10, token);
+            }
+            var identity = new ProcessIdentity(process.Id, process.StartTime.ToUniversalTime(), process.MainModule!.FileName!, ProcessLifetime.Token(process));
+            await gate.WaitAsync(token);
+            try
+            {
+                var startToken = identity.StartToken!;
+                sessions[p.Id] = new(process.Id, startToken[..startToken.IndexOf(':')], identity.StartUtc);
+                store.Write("owned-sessions.json", sessions);
+                owned[p.Id] = [identity]; store.Write("owned-processes.json", owned);
+            }
+            finally { gate.Release(); }
+            if (kill(process.Id, 18) != 0) throw new IOException("Could not release the safe startup bootstrap."); // SIGCONT
+        }
+        catch
+        {
+            // Abort only the stopped bootstrap, before exec has run any game code.
+            if (!process.HasExited) { kill(process.Id, 15); kill(process.Id, 18); }
+            throw;
+        }
         await Task.Delay(1500, token);
         if (!(await InspectAsync(p, token)).Running) throw new IOException("Server exited during startup. Check its log and Linux runtime dependencies.");
     }

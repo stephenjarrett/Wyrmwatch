@@ -1,4 +1,5 @@
 using System.Net.Http.Headers;
+using System.Text;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless;
@@ -33,22 +34,22 @@ public class ServerFlowsTests
         var alphaWorld = Path.Combine(created.SavedPath, "SaveGames", "alpha.sav");
         Directory.CreateDirectory(Path.GetDirectoryName(alphaWorld)!); File.WriteAllText(alphaWorld, "alpha progress");
 
-        var beta = fixture.Existing("Test Beta");
-        var betaWorld = Path.Combine(beta.SavedPath, "SaveGames", "beta.sav");
-        var betaBytes = File.ReadAllBytes(betaWorld); var betaConfig = File.ReadAllBytes(beta.ConfigPath);
+        var sourceProfile = fixture.Existing("Source Beta");
+        var sourceWorld = Path.Combine(sourceProfile.SavedPath, "SaveGames", "beta.sav");
+        var betaBytes = File.ReadAllBytes(sourceWorld); var sourceConfig = File.ReadAllBytes(sourceProfile.ConfigPath);
         Click(window, Field<Button>(window, "ImportServerButton"));
-        var import = await Owned<ImportServerDialog>(window);
-        Type(import, "ImportLocation", beta.InstallPath);
-        Type(import, "ImportBackupFolder", beta.BackupPath);
-        Click(import, Field<Button>(import, "ImportReview"));
-        await Until(() => Field<TextBlock>(import, "ImportDetails").Text!.Contains("Automation: off"));
-        Click(import, Field<CheckBox>(import, "ImportConfirmed"));
-        Click(import, Field<Button>(import, "ImportAccept"));
-        await Until(() => Equals(Field<Button>(import, "ImportAccept").Content, "Done"));
-        Click(import, Field<Button>(import, "ImportAccept"));
+        var import = await Owned<CreateServerDialog>(window);
+        await FillImportAsync(import, fixture, "Test Beta", sourceWorld);
+        Click(import, Field<Button>(import, "CreateNext"));
+        await Until(() => Equals(Field<Button>(import, "CreateNext").Content, "Close"));
+        Click(import, Field<Button>(import, "CreateNext"));
         Assert.Equal(2, model.Profiles.Count); Assert.Equal(2, model.ServerRows.Count);
-        beta = model.SelectedProfile!;
-        Assert.Equal(betaBytes, File.ReadAllBytes(betaWorld)); Assert.Equal(betaConfig, File.ReadAllBytes(beta.ConfigPath));
+        var beta = model.SelectedProfile!;
+        var betaWorld = Path.Combine(beta.SavedPath, "SaveGames", "beta.sav");
+        var betaConfig = File.ReadAllBytes(beta.ConfigPath);
+        Assert.Equal(betaBytes, File.ReadAllBytes(betaWorld));
+        Assert.Equal(betaBytes, File.ReadAllBytes(sourceWorld)); Assert.Equal(sourceConfig, File.ReadAllBytes(sourceProfile.ConfigPath));
+        Assert.NotEqual(sourceProfile.InstallPath, beta.InstallPath);
         Assert.False(beta.AutoBackup); Assert.False(beta.AutoUpdate); Assert.Equal(0, fixture.Runtime.Starts);
         await WaitState(fixture, false);
         Capture(window, "servers-dark.png");
@@ -58,6 +59,10 @@ public class ServerFlowsTests
         Application.Current.RequestedThemeVariant = theme;
 
         Click(window, Field<Button>(window, "EditServerButton"));
+        Assert.True(Field<TextBox>(window, "InstallFolder").IsReadOnly);
+        Assert.Equal(beta.InstallPath, Field<TextBox>(window, "InstallFolder").Text);
+        Assert.Equal(beta.SavedPath, Field<TextBox>(window, "DataFolder").Text);
+        Capture(window, "server-settings-paths.png");
         Type(window, "ProfileName", "Test Beta edited");
         Click(window, Field<Button>(window, "SaveConnectionButton"));
         await Until(() => model.SelectedProfile?.Name == "Test Beta edited");
@@ -96,6 +101,10 @@ public class ServerFlowsTests
         File.WriteAllText(betaWorld, "new beta progress");
         window.ShowPage(WorkspacePage.Backups);
         var list = Field<ListBox>(window, "BackupList"); list.SelectedIndex = 0;
+        var selectedArchive = Assert.IsType<BackupRow>(list.SelectedItem).Info.Path;
+        await window.RefreshServersAsync();
+        Assert.Equal(selectedArchive, Assert.IsType<BackupRow>(list.SelectedItem).Info.Path);
+        Capture(window, "backups-dark.png");
         Click(window, Field<Button>(window, "RestoreBackupButton")); await Accept(window, "Restore backup");
         await Until(() => model.Notice.StartsWith("Backup restored") && !model.Busy);
         Assert.Equal(betaBytes, File.ReadAllBytes(betaWorld));
@@ -103,7 +112,7 @@ public class ServerFlowsTests
         Assert.All(betaBackups, b => Assert.True(File.Exists(b.Path)));
 
         window.ShowPage(WorkspacePage.Servers);
-        Click(window, Field<Button>(window, "RemoveServerButton")); await Accept(window, "Remove server");
+        Click(window, Field<Button>(window, "RemoveServerButton")); await Accept(window, "Disconnect server");
         await Until(() => model.Profiles.Count == 1);
         Assert.Equal(created.Id, model.SelectedProfile!.Id);
         Assert.Equal(betaBytes, File.ReadAllBytes(betaWorld)); Assert.Equal(betaConfig, File.ReadAllBytes(beta.ConfigPath));
@@ -128,11 +137,10 @@ public class ServerFlowsTests
         await Until(() => Field<TextBlock>(create, "CreateMessage").Text!.Contains("Player ID"));
         Type(create, "CreateOwnerId", "dummy-owner");
         Click(create, Field<Button>(create, "CreateNext"));
-        await Until(() => Field<TextBox>(create, "CreateParentFolder").IsEffectivelyVisible);
-        Type(create, "CreateParentFolder", fixture.Root); Type(create, "CreateBackupParent", Path.Combine(fixture.Root, "backups"));
+        await Until(() => Field<TextBox>(create, "CreateManagedLocations").IsEffectivelyVisible);
         Click(create, Field<Button>(create, "CreateNext"));
         await Until(() => Equals(Field<Button>(create, "CreateNext").Content, "Create Server"));
-        var target = Path.Combine(fixture.Root, "my-dragonwilds-server"); Directory.CreateDirectory(target);
+        var target = Path.Combine(fixture.Store.DirectoryPath, "WyrmwatchServers", "my-dragonwilds-server"); Directory.CreateDirectory(target);
         var sentinel = Path.Combine(target, "preserve.sav"); File.WriteAllText(sentinel, "occupied");
         Click(create, Field<Button>(create, "CreateNext"));
         await Until(() => Field<TextBlock>(create, "CreateMessage").Text!.Contains("already contains files"));
@@ -143,51 +151,44 @@ public class ServerFlowsTests
         var existing = fixture.Existing("Cancel Me");
         var before = Directory.EnumerateFiles(existing.InstallPath, "*", SearchOption.AllDirectories).ToDictionary(p => p, File.ReadAllBytes);
         Click(fixture.Window, Field<Button>(fixture.Window, "ImportServerButton"));
-        var import = await Owned<ImportServerDialog>(fixture.Window);
-        Type(import, "ImportLocation", Path.Combine(fixture.Root, "missing"));
-        Type(import, "ImportBackupFolder", existing.BackupPath);
-        Click(import, Field<Button>(import, "ImportReview"));
-        await Until(() => Field<Button>(import, "ImportReview").IsEffectivelyEnabled && !Field<TextBlock>(import, "ImportDetails").Text!.Contains("Reading"));
-        Assert.False(Field<Button>(import, "ImportAccept").IsEnabled);
-        Type(import, "ImportLocation", existing.InstallPath);
-        Click(import, Field<Button>(import, "ImportReview"));
-        await Until(() => Field<TextBlock>(import, "ImportDetails").Text!.Contains("Automation: off"));
-        Click(import, Field<CheckBox>(import, "ImportConfirmed"));
-        Click(import, Field<Button>(import, "ImportCancel"));
+        var import = await Owned<CreateServerDialog>(fixture.Window);
+        Type(import, "CreateServerName", "Cancel Import");
+        Type(import, "CreateOwnerId", "dummy-owner"); Type(import, "ImportWorldSource", Path.Combine(fixture.Root, "missing.sav"));
+        Click(import, Field<CheckBox>(import, "ImportSourceStopped")); Click(import, Field<Button>(import, "CreateNext"));
+        await Until(() => Field<Button>(import, "CreateNext").IsEnabled && !string.IsNullOrEmpty(Field<TextBlock>(import, "CreateMessage").Text));
+        Type(import, "ImportWorldSource", Path.Combine(existing.SavedPath, "SaveGames", "beta.sav"));
+        Click(import, Field<CheckBox>(import, "ImportSourceStopped")); Click(import, Field<Button>(import, "CreateNext"));
+        await Until(() => Field<TextBox>(import, "CreateManagedLocations").IsEffectivelyVisible);
+        Click(import, Field<Button>(import, "CreateNext"));
+        await Until(() => Equals(Field<Button>(import, "CreateNext").Content, "Import World"));
+        Click(import, Field<Button>(import, "CreateCancel"));
         Assert.Empty(fixture.Store.Read("settings.json", () => new ManagerSettings()).Servers);
         Assert.All(before, pair => Assert.Equal(pair.Value, File.ReadAllBytes(pair.Key)));
-        Assert.False(Directory.Exists(existing.BackupPath)); Assert.Equal(0, fixture.Runtime.Starts);
+        Assert.False(Directory.Exists(existing.BackupPath)); Assert.Equal(0, fixture.Runtime.Starts); Assert.Equal(0, fixture.Steam.Installs);
     }
 
     [AvaloniaFact]
     public async Task ImportErrorKeepsWizardOpenAndCanBeReviewedAndRetried()
     {
         await using var fixture = await Lab.StartAsync();
-        var existing = fixture.Existing("Retry Import");
-        var originalWorld = File.ReadAllBytes(Path.Combine(existing.SavedPath, "SaveGames", "beta.sav"));
+        var existing = fixture.Existing("Retry Import Source");
+        var source = Path.Combine(existing.SavedPath, "SaveGames", "beta.sav");
         Click(fixture.Window, Field<Button>(fixture.Window, "ImportServerButton"));
-        var dialog = await Owned<ImportServerDialog>(fixture.Window);
-        Type(dialog, "ImportLocation", existing.InstallPath); Type(dialog, "ImportBackupFolder", existing.BackupPath);
-        Click(dialog, Field<Button>(dialog, "ImportReview"));
-        await Until(() => Field<TextBlock>(dialog, "ImportDetails").Text!.Contains("Automation: off"));
-        // Simulate a configuration change in the disposable server after review.
-        File.WriteAllText(existing.ConfigPath, File.ReadAllText(existing.ConfigPath).Replace("Port=7777", "Port=7781"));
-        var config = File.ReadAllBytes(existing.ConfigPath);
-        Click(dialog, Field<CheckBox>(dialog, "ImportConfirmed")); Click(dialog, Field<Button>(dialog, "ImportAccept"));
-        await Until(() => Field<TextBlock>(dialog, "ImportDetails").Text!.Contains("Import did not finish"));
-        Assert.Contains(dialog, fixture.Window.OwnedWindows);
-        Assert.Equal(existing.InstallPath, Field<TextBox>(dialog, "ImportLocation").Text);
-        Assert.Empty(fixture.Store.Read("settings.json", () => new ManagerSettings()).Servers);
-        Click(dialog, Field<Button>(dialog, "ImportReview"));
-        await Until(() => Field<TextBlock>(dialog, "ImportDetails").Text!.Contains("Port 7781"));
-        Click(dialog, Field<CheckBox>(dialog, "ImportConfirmed")); Click(dialog, Field<Button>(dialog, "ImportAccept"));
-        await Until(() => Equals(Field<Button>(dialog, "ImportAccept").Content, "Done"));
-        Assert.Equal(7781, Assert.Single(fixture.Store.Read("settings.json", () => new ManagerSettings()).Servers).Port);
-        Assert.Equal(config, File.ReadAllBytes(existing.ConfigPath));
-        Assert.Equal(originalWorld, File.ReadAllBytes(Path.Combine(existing.SavedPath, "SaveGames", "beta.sav")));
-        Assert.Equal(0, fixture.Runtime.Starts); Click(dialog, Field<Button>(dialog, "ImportAccept"));
+        var dialog = await Owned<CreateServerDialog>(fixture.Window);
+        await FillImportAsync(dialog, fixture, "Retry Import", source);
+        var bytes = File.ReadAllBytes(source); bytes[^1] = 2; File.WriteAllBytes(source, bytes);
+        Click(dialog, Field<Button>(dialog, "CreateNext"));
+        await Until(() => Field<TextBlock>(dialog, "CreateMessage").Text!.Contains("changed after review"));
+        Assert.Empty(fixture.Store.Read("settings.json", () => new ManagerSettings()).Servers); Assert.Equal(0, fixture.Steam.Installs);
+        Click(dialog, Field<Button>(dialog, "CreateBack")); Click(dialog, Field<Button>(dialog, "CreateNext"));
+        await Until(() => Equals(Field<Button>(dialog, "CreateNext").Content, "Import World"));
+        Click(dialog, Field<Button>(dialog, "CreateNext"));
+        await Until(() => Equals(Field<Button>(dialog, "CreateNext").Content, "Close"));
+        var profile = ((WorkspaceModel)fixture.Window.DataContext!).SelectedProfile!;
+        Assert.Equal(bytes, File.ReadAllBytes(Path.Combine(profile.SavedPath, "SaveGames", "beta.sav"))); Assert.Equal(bytes, File.ReadAllBytes(source));
+        Assert.Single(fixture.Store.Read("settings.json", () => new ManagerSettings()).Servers); Assert.Equal(0, fixture.Runtime.Starts);
+        Click(dialog, Field<Button>(dialog, "CreateNext"));
     }
-
     [AvaloniaFact]
     public async Task FailedDownloadCanRetryWithoutStaleConnectionOrReplacingFiles()
     {
@@ -199,7 +200,7 @@ public class ServerFlowsTests
         Click(dialog, Field<Button>(dialog, "CreateNext"));
         await Until(() => Field<TextBlock>(dialog, "CreateMessage").Text!.Contains("fixture download failed"));
         Assert.Empty(fixture.Store.Read("settings.json", () => new ManagerSettings()).Servers);
-        var partial = Directory.GetDirectories(fixture.Root, "retry-test.setup-*").Single();
+        var partial = Directory.GetDirectories(Path.Combine(fixture.Store.DirectoryPath, "WyrmwatchServers"), "retry-test.setup-*").Single();
         Assert.Equal("partial download", File.ReadAllText(Path.Combine(partial, "partial.txt")));
         Click(dialog, Field<Button>(dialog, "CreateNext"));
         await Until(() => Equals(Field<Button>(dialog, "CreateNext").Content, "Close"));
@@ -225,11 +226,22 @@ public class ServerFlowsTests
         Type(dialog, "CreateServerName", name); Type(dialog, "CreateOwnerId", "dummy-owner");
         Capture(dialog, "create-world.png");
         Click(dialog, Field<Button>(dialog, "CreateNext"));
-        await Until(() => Field<TextBox>(dialog, "CreateParentFolder").IsEffectivelyVisible);
-        Type(dialog, "CreateParentFolder", fixture.Root); Type(dialog, "CreateBackupParent", Path.Combine(fixture.Root, "backups"));
+        await Until(() => Field<TextBox>(dialog, "CreateManagedLocations").IsEffectivelyVisible);
         Capture(dialog, "create-folders.png");
         Click(dialog, Field<Button>(dialog, "CreateNext"));
         await Until(() => Equals(Field<Button>(dialog, "CreateNext").Content, "Create Server"));
+    }
+    private static async Task FillImportAsync(CreateServerDialog dialog, Lab fixture, string name, string source)
+    {
+        Type(dialog, "CreateServerName", name); Type(dialog, "CreateOwnerId", "dummy-owner"); Type(dialog, "ImportWorldSource", source);
+        Click(dialog, Field<CheckBox>(dialog, "ImportSourceStopped")); Capture(dialog, "import-world-source.png");
+        Click(dialog, Field<Button>(dialog, "CreateNext"));
+        await Until(() => Field<TextBox>(dialog, "CreateManagedLocations").IsEffectivelyVisible);
+        Assert.True(Field<TextBox>(dialog, "CreateManagedLocations").IsReadOnly);
+        Capture(dialog, "import-world-access.png"); Click(dialog, Field<Button>(dialog, "CreateNext"));
+        await Until(() => Equals(Field<Button>(dialog, "CreateNext").Content, "Import World"));
+        Assert.Contains("embedded name", Field<TextBlock>(dialog, "CreateReview").Text);
+        Capture(dialog, "import-world-review.png");
     }
     private static T Field<T>(Window window, string name) where T : Control => window.GetLogicalDescendants().OfType<T>().Single(c => c.Name == name);
     private static void Capture(Window window, string name)
@@ -263,6 +275,8 @@ public class ServerFlowsTests
     private static async Task Accept(Window owner, string label)
     {
         var dialog = await Owned<Window>(owner);
+        if (label == "Restore backup") Capture(dialog, "restore-confirmation.png");
+        if (label == "Disconnect server") Capture(dialog, "disconnect-confirmation.png");
         Click(dialog, dialog.GetLogicalDescendants().OfType<Button>().Single(b => Equals(b.Content, label)));
     }
     private static async Task SelectAsync(Lab fixture, int index)
@@ -315,7 +329,7 @@ public class ServerFlowsTests
             var p = new ServerProfile { Name = name, InstallPath = Path.Combine(Root, folder), BackupPath = Path.Combine(Root, "backups", folder) };
             Directory.CreateDirectory(Path.Combine(p.SavedPath, "SaveGames"));
             File.WriteAllText(p.Launcher, "dummy launcher, never execute");
-            File.WriteAllText(Path.Combine(p.SavedPath, "SaveGames", "beta.sav"), "beta progress");
+            WriteWorldSave(Path.Combine(p.SavedPath, "SaveGames", "beta.sav"));
             AtomicFile.Write(p.ConfigPath, "[/Script/Dominion.DedicatedServerSettings]\nOwnerId=dummy-owner\nServerName=" + name + "\nDefaultWorldName=Beta\nAdminPassword=dummy-private\nPort=7777\n");
             return p;
         }
@@ -326,6 +340,13 @@ public class ServerFlowsTests
             if (!SafePaths.Within(Root, Path.GetTempPath()) || !Path.GetFileName(Root).StartsWith("wyrmwatch-e2e-")) throw new InvalidOperationException("Unsafe fixture cleanup");
             Directory.Delete(Root, true);
         }
+    }
+    private static void WriteWorldSave(string path)
+    {
+        using var body = new MemoryStream(); using var writer = new BinaryWriter(body, Encoding.UTF8, true);
+        writer.Write(Encoding.ASCII.GetBytes("INFO")); writer.Write(4); writer.Write(1);
+        writer.Write(Encoding.ASCII.GetBytes("GLOB")); writer.Write(12); writer.Write(new byte[12]);
+        using var output = new BinaryWriter(File.Create(path)); output.Write(Encoding.ASCII.GetBytes("SAVE")); output.Write((int)body.Length); output.Write(body.ToArray());
     }
     private sealed class DummyRuntime : IServerRuntime
     {

@@ -27,6 +27,7 @@ public partial class MainWindow : Window
     private TrayIcon? tray;
     private bool ready, exitRequested, changingProfile, agentTransition;
     private string historyFingerprint = "";
+    private int backupRefreshVersion;
 
     public MainWindow() : this(null) { }
     internal MainWindow(AgentClient? connection)
@@ -84,6 +85,7 @@ public partial class MainWindow : Window
     {
         model.SyncRows();
         model.ServerRunning = null;
+        model.RecoveryPending = false; model.InstalledBuildKnown = false;
         latestServerLog = ""; ServerLogText.Text = "";
         var p = model.SelectedProfile;
         if (p is null)
@@ -102,8 +104,8 @@ public partial class MainWindow : Window
         }
         model.Status = "Checking…"; model.Players = model.Cpu = model.Memory = model.Uptime = "—";
         CpuChart.Clear(); MemoryChart.Clear();
-        try { model.BuildSummary = "Installed build: " + (Program.Demo ? "20681432 · Demo" : steam?.InstalledBuild(p) ?? "Unknown"); }
-        catch (IOException) { model.BuildSummary = "Installed build: Unavailable"; }
+        try { var installed = steam?.InstalledBuild(p); model.InstalledBuildKnown = installed is not null; model.BuildSummary = "Installed build: " + (Program.Demo ? "20681432 · Demo" : installed ?? "Unknown"); }
+        catch (IOException) { model.InstalledBuildKnown = false; model.BuildSummary = "Installed build: Unavailable"; }
         UpdateScheduleLabels(); _ = RefreshBackupsAsync();
     }
     private async Task PollLoopAsync()
@@ -157,7 +159,16 @@ public partial class MainWindow : Window
     private void UpdateRows()
     {
         model.SyncRows();
-        foreach (var row in model.ServerRows) row.Update(service!.Servers.FirstOrDefault(s => s.Id == row.Id)?.State);
+        foreach (var row in model.ServerRows)
+        {
+            var managed = service!.Servers.FirstOrDefault(s => s.Id == row.Id);
+            row.Update(managed?.State, managed?.RecoveryRequired == true);
+        }
+        var selected = service!.Servers.FirstOrDefault(s => s.Id == model.SelectedProfile?.Id);
+        model.RecoveryPending = selected?.RecoveryRequired == true;
+        model.InstalledBuildKnown = !string.IsNullOrWhiteSpace(selected?.Build);
+        if (selected is not null && (model.BuildSummary.StartsWith("Installed build:", StringComparison.Ordinal) || !model.InstalledBuildKnown)) model.BuildSummary = "Installed build: " + (selected.Build ?? "Unknown");
+        if (selected is not null) model.Status = selected.RecoveryRequired ? "Recovery required" : !selected.State.Accessible ? "Needs attention" : selected.State.Running ? "Online" : "Stopped";
     }
     private async void ServerRowSelected(object? sender, SelectionChangedEventArgs e)
     {
@@ -194,14 +205,17 @@ public partial class MainWindow : Window
     }
     private async Task RefreshBackupsAsync()
     {
+        var refreshVersion = ++backupRefreshVersion;
         var p = model.SelectedProfile; if (p is null || Program.Demo) return;
         try
         {
-            var list = await Task.Run(() => backups.List(p)); if (p.Id != model.SelectedProfile?.Id) return;
+            var list = await Task.Run(() => backups.List(p)); if (refreshVersion != backupRefreshVersion || p.Id != model.SelectedProfile?.Id) return;
+            var selectedArchive = (BackupList.SelectedItem as BackupRow)?.Info.Path;
             model.Backups.Clear(); foreach (var item in list) model.Backups.Add(new(item));
+            BackupList.SelectedItem = model.Backups.FirstOrDefault(row => row.Info.Path == selectedArchive);
             model.BackupSummary = list.Count == 0 ? "No recovery points yet" : $"{list.Count} recovery points · latest {list[0].Manifest.Created.LocalDateTime:MMM d, h:mm tt}";
         }
-        catch (Exception e) { model.Notice = e.Message; }
+        catch (Exception e) { if (refreshVersion == backupRefreshVersion && p.Id == model.SelectedProfile?.Id) model.Notice = e.Message; }
     }
     private async Task Run(Func<ServerProfile, Task<string>> action)
     {
@@ -234,9 +248,9 @@ public partial class MainWindow : Window
         if (!model.CanManage) return;
         try
         {
-            await new ImportServerDialog("", model.Profiles.ToArray(), ImportServerAsync).ShowDialog(this);
+            await new CreateServerDialog(model.Profiles.ToArray(), CreateServerAsync, Program.HeadlessTest ? store.DirectoryPath : null, ImportWorldAsync).ShowDialog(this);
         }
-        catch (Exception error) { await ShowSetupErrorAsync("Could not import server", error.Message); }
+        catch (Exception error) { await ShowSetupErrorAsync("Could not import world", error.Message); }
     }
     private async void NewServer(object? sender, RoutedEventArgs e)
     {
@@ -244,7 +258,7 @@ public partial class MainWindow : Window
         if (!model.CanManage) return;
         try
         {
-            await new CreateServerDialog(model.Profiles.ToArray(), CreateServerAsync).ShowDialog(this);
+            await new CreateServerDialog(model.Profiles.ToArray(), CreateServerAsync, Program.HeadlessTest ? store.DirectoryPath : null).ShowDialog(this);
         }
         catch (Exception error) { await ShowSetupErrorAsync("Could not create server", error.Message); }
     }
@@ -262,13 +276,15 @@ public partial class MainWindow : Window
         }
         finally { model.Busy = false; RefreshHistory(); }
     }
-    private async Task ImportServerAsync(ServerProfile profile)
+    private async Task ImportWorldAsync(ServerCreationPlan plan, WorldImportPlan source, Action<string> report)
     {
+        if (service!.Busy) throw new IOException("Another server operation is still running. Wait for it to finish.");
         model.Busy = true;
         try
         {
-            await AddProfileAsync(await service!.ImportProfileAsync(profile));
-            model.Notice = "Server imported. Game files are unchanged; automation is off.";
+            report("Downloading a separate server and copying the reviewed world. Source files are preserved. Progress is recorded in Activity.");
+            await AddProfileAsync(await service!.ImportWorldAsync(plan, source, true));
+            model.Notice = "World imported into a new, stopped connection. Verify the world after Start; automation is off.";
         }
         finally { model.Busy = false; }
     }
@@ -323,10 +339,10 @@ public partial class MainWindow : Window
     }
     private async void StartServer(object? sender, RoutedEventArgs e) { if (model.CanStart) await Run(p => service!.StartAsync(p)); }
     private async void StopServer(object? sender, RoutedEventArgs e) { if (model.CanStop && await Confirm("Stop this server?", "Connected players will be disconnected. Wyrmwatch will back up first and request a graceful shutdown.", "Stop server")) await Run(p => service!.StopAsync(p)); }
-    private async void RestartServer(object? sender, RoutedEventArgs e) { if (model.CanStop && await Confirm("Restart this server?", "Connected players will be disconnected. A backup is required before restarting.", "Restart server")) await Run(p => service!.StopAsync(p, true)); }
+    private async void RestartServer(object? sender, RoutedEventArgs e) { if (model.CanRestart && await Confirm("Restart this server?", "Connected players will be disconnected. A backup is required before restarting.", "Restart server")) await Run(p => service!.StopAsync(p, true)); }
     private async void CreateBackup(object? sender, RoutedEventArgs e) => await Run(p => service!.BackupAsync(p));
     private async void CheckUpdates(object? sender, RoutedEventArgs e) { await Run(async p => { var result = await service!.CheckAsync(p); Dispatcher.UIThread.Post(() => model.BuildSummary = result); return result; }); }
-    private async void ApplyUpdate(object? sender, RoutedEventArgs e) => await Run(p => service!.UpdateAsync(p));
+    private async void ApplyUpdate(object? sender, RoutedEventArgs e) { if (model.CanUpdate) await Run(p => service!.UpdateAsync(p)); else model.Notice = model.UpdateHint; }
     internal void ShowPage(WorkspacePage page) => Navigation.SelectedIndex = (int)page;
     private void GoServers(object? sender, RoutedEventArgs e) => ShowPage(WorkspacePage.Servers);
     private void GoBackups(object? sender, RoutedEventArgs e) => ShowPage(WorkspacePage.Backups);
@@ -335,7 +351,7 @@ public partial class MainWindow : Window
     private void ApplyServerState(ServerSnapshot state)
     {
         model.ServerRunning = state.Accessible ? state.Running : null;
-        model.Status = !state.Accessible ? "Needs attention" : state.Running ? "Online" : "Stopped";
+        model.Status = model.RecoveryPending ? "Recovery required" : !state.Accessible ? "Needs attention" : state.Running ? "Online" : "Stopped";
         model.Players = state.Players?.ToString() ?? "?";
         model.Cpu = state.Running ? $"{state.CpuPercent:0.0}%" : "—";
         model.Memory = state.Running ? $"{state.MemoryBytes / 1073741824d:0.0} GB" : "—";
@@ -351,7 +367,13 @@ public partial class MainWindow : Window
     private async void RestoreBackup(object? sender, RoutedEventArgs e)
     {
         if (BackupList.SelectedItem is not BackupRow row) { model.Notice = "Select a backup first."; return; }
-        if (await Confirm("Restore this recovery point?", $"{row.Title}\n\nThe server must be stopped. Current data will be backed up and retained in a recovery folder. Newer progress will no longer be active. The server will remain stopped.", "Restore backup")) await Run(p => service!.RestoreAsync(p, row.Info.Path));
+        var coverage = row.IncludesWorld ? "This restores world progress and configuration from the archive. Newer world progress will no longer be active." : "This archive contains configuration only. Current world files will stay active.";
+        if (await Confirm("Restore this recovery point?", $"{row.Title}\n\n{coverage}\n\nThe server must be stopped. Existing data is retained for recovery; an empty save folder can also be restored. The server will remain stopped.", "Restore backup")) await Run(p => service!.RestoreAsync(p, row.Info.Path));
+    }
+    private async void RecoverRestore(object? sender, RoutedEventArgs e)
+    {
+        if (!model.CanRecover) return;
+        if (await Confirm("Recover the interrupted restore?", "Reconcile the interrupted restore. An incomplete swap is rolled back to the previous files; a completed restore is verified before recovery is cleared. Retained files remain available for inspection. The server stays stopped.", "Recover interrupted restore")) await Run(p => service!.RecoverAsync(p));
     }
     private async Task<bool> Confirm(string title, string message, string accept)
     {
@@ -406,10 +428,12 @@ public partial class MainWindow : Window
         exitRequested = true; closing.Cancel(); tray?.Dispose(); (Application.Current!.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime)?.Shutdown();
     }
     private async void CopyActivity(object? sender, RoutedEventArgs e) { if (Clipboard is not null) await Clipboard.SetValueAsync(DataFormat.Text, model.Activity); }
+    private async void CopyInstallPath(object? sender, RoutedEventArgs e) { if (Clipboard is not null && model.SelectedProfile is { } p) { await Clipboard.SetValueAsync(DataFormat.Text, p.InstallPath); model.Notice = "Installation path copied."; } }
+    private async void CopySavedPath(object? sender, RoutedEventArgs e) { if (Clipboard is not null && model.SelectedProfile is { } p) { await Clipboard.SetValueAsync(DataFormat.Text, p.SavedPath); model.Notice = "Save path copied."; } }
     private async void DisconnectServer(object? sender, RoutedEventArgs e)
     {
         if (Program.Demo || model.SelectedProfile is not { } p) return;
-        if (!await Confirm("Remove this server from the list?", $"Remove {p.Name} from Wyrmwatch and stop its scheduled maintenance. Its game process, saves, installation, and backups will stay in place. You can connect it again later.", "Remove server")) return;
+        if (!await Confirm("Disconnect this server?", $"Disconnect {p.Name} from Wyrmwatch and stop its scheduled maintenance. Its game process, saves, installation, and backups stay in place. The connection is retained to protect its save location. You can import its world into a new connection later.", "Disconnect server")) return;
         try
         {
             await service!.SendAsync("admin/profiles/" + Uri.EscapeDataString(p.Id), HttpMethod.Delete);
@@ -418,7 +442,7 @@ public partial class MainWindow : Window
             finally { changingProfile = false; }
             ProfileName.Text = InstallFolder.Text = DataFolder.Text = BackupFolder.Text = "";
             OwnerId.Text = GameServerName.Text = WorldName.Text = AdminPassword.Text = WorldPassword.Text = "";
-            model.Backups.Clear(); LoadProfile(); ShowPage(WorkspacePage.Servers); model.Notice = "Connection removed. Server files and backups are preserved.";
+            model.Backups.Clear(); LoadProfile(); ShowPage(WorkspacePage.Servers); model.Notice = "Server disconnected. Server files and backups are preserved.";
         }
         catch (Exception error) { model.Notice = error.Message; }
     }
