@@ -59,10 +59,12 @@ Automatic game updates, scheduled backups, background operation, manager update 
 
 ## Use an existing server
 
-1. Choose **Import existing server** (or **Import another server…** in Settings) and select its launcher (`RSDragonwildsServer.exe` on Windows, the server launch script on Linux).
+1. Choose **Import existing server** (or **Import another server…** in Settings). Paste its installation folder into the dialog or use **Choose server folder…**. You can also paste the full launcher path (`RSDragonwildsServer.exe` on Windows, the server launch script on Linux) directly into the text field. Click **Review folders**; the launcher is read, never executed.
 2. Review the **save-data folder** and backup destination. The default is `RSDragonwilds/Saved` inside the installation. If this server uses your user-profile data, explicitly select that server's real Saved folder instead. Wyrmwatch reads the existing server name and port from that folder's configuration; it does not guess or combine unrelated player saves.
 3. Confirm the reviewed Saved folder and choose **Import server**, then create a manual backup. Importing only saves a connection: it does not move files, rewrite game configuration, install, launch, or stop a server. Automatic updates and backups are disabled on import, including reconnection.
 4. Enable schedules when ready. Run only one server-management application with automatic maintenance enabled for the installation.
+
+For a fresh installation, choose **Install new server** and select an empty folder dedicated to that server, such as `C:\Games\Dragonwilds-NewServer`. A populated parent folder such as `C:\Games` is rejected without changing its contents. Review the destination and confirm **Install server**; the Activity page shows the download output.
 
 A server started elsewhere can be monitored and backed up. Wyrmwatch will not send it shutdown signals without a recorded owned process identity. Stop it using its existing controls at a convenient time, then start it through Wyrmwatch for managed shutdown. No forced-stop fallback is enabled.
 

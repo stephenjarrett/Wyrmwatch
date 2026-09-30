@@ -21,6 +21,15 @@ public static class ServerConnections
 
 public static class ExistingServerImport
 {
+    public static string ResolveLauncher(string location)
+    {
+        var path = location.Trim().Trim('"');
+        if (!Path.IsPathFullyQualified(path)) throw new ArgumentException("Choose a server installation folder, or paste the full path to its launcher.");
+        return Directory.Exists(path)
+            ? Path.Combine(path, OperatingSystem.IsWindows() ? "RSDragonwildsServer.exe" : "RSDragonwildsServer.sh")
+            : path;
+    }
+
     // Read only: connecting an installation never copies, installs, or modifies game files.
     public static ServerProfile Inspect(string launcher, string savedPath, string backupPath)
     {

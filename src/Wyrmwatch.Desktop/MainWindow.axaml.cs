@@ -197,16 +197,12 @@ public partial class MainWindow : Window
         if (Program.Demo) { model.Notice = "Exit demo mode to connect a real server."; return; }
         try
         {
-            var files = await StorageProvider.OpenFilePickerAsync(new() { Title = "Choose the Dragonwilds server launcher", AllowMultiple = false, FileTypeFilter = [new("Dragonwilds server") { Patterns = OperatingSystem.IsWindows() ? ["RSDragonwildsServer.exe"] : ["*.sh", "RSDragonwildsServer"] }] });
-            var file = files.FirstOrDefault()?.TryGetLocalPath(); if (file is null) return;
-            var folder = Path.GetDirectoryName(file)!;
-            if (model.Profiles.Any(p => SafePaths.Same(p.InstallPath, folder))) { model.Notice = "This installation is already connected."; return; }
-            var p = await new ImportServerDialog(file, model.Profiles.ToArray()).ShowDialog<ServerProfile?>(this);
+            var p = await new ImportServerDialog("", model.Profiles.ToArray()).ShowDialog<ServerProfile?>(this);
             if (p is null) return;
             p = await service!.ImportProfileAsync(p); model.Profiles.Add(p); model.SelectedProfile = p; settings = settings with { SelectedServerId = p.Id }; LoadProfile(); Navigation.SelectedIndex = 5;
             model.Notice = "Imported without changing game files. Automation is off. Create your first backup when ready.";
         }
-        catch (Exception error) { model.Notice = error.Message; }
+        catch (Exception error) { await ShowSetupErrorAsync("Could not import server", error.Message); }
     }
     private async void NewServer(object? sender, RoutedEventArgs e)
     {
@@ -214,13 +210,41 @@ public partial class MainWindow : Window
         try
         {
             var folder = await Folder("Choose an empty folder for the new server"); if (folder is null) return;
-            if (Directory.EnumerateFileSystemEntries(folder).Any()) { model.Notice = "Choose an empty folder. Existing files were preserved."; return; }
-            var p = new ServerProfile { Name = "New Dragonwilds server", InstallPath = folder, BackupPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "WyrmwatchBackups") }; p.Validate();
+            await InstallNewServerAsync(folder);
+        }
+        catch (Exception error) { await ShowSetupErrorAsync("Could not install server", error.Message); }
+    }
+    internal async Task InstallNewServerAsync(string folder)
+    {
+        try
+        {
+            var connections = model.Profiles.ToArray();
+            var p = await Task.Run(() =>
+            {
+                var profile = new ServerProfile { Name = "New Dragonwilds server", InstallPath = folder, BackupPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "WyrmwatchBackups") };
+                ServerConnections.Validate(profile, connections);
+                if (!Directory.Exists(folder)) throw new IOException("Choose an existing empty folder for the new server.");
+                if (Directory.EnumerateFileSystemEntries(folder).Any())
+                    throw new IOException("This folder already contains files:\n" + folder + "\n\nCreate and select a new empty subfolder for this server. To use a server already installed here, choose Import existing server instead.\n\nNo files were changed.");
+                return profile;
+            });
+            if (service!.Busy) throw new IOException("Another server operation is still running. Wait for it to finish, then try again.");
             if (!await Confirm("Install a new server?", "SteamCMD will download the dedicated server into:\n" + folder + "\n\nThe server will remain stopped until you configure and start it.", "Install server")) return;
             p = await service!.SaveProfileAsync(p); model.Profiles.Add(p); model.SelectedProfile = p; LoadProfile();
-            await Run(profile => service!.InstallAsync(profile)); Navigation.SelectedIndex = 5;
+            model.Busy = true; model.Notice = "Installing server… Follow the download in Activity."; Navigation.SelectedIndex = 4;
+            try { model.Notice = await service.InstallAsync(p); Navigation.SelectedIndex = 5; }
+            finally { model.Busy = false; await RefreshBackupsAsync(); RefreshHistory(); }
         }
-        catch (Exception error) { model.Notice = error.Message; }
+        catch (Exception error) { await ShowSetupErrorAsync("Could not install server", error.Message); }
+    }
+    private async Task ShowSetupErrorAsync(string title, string message)
+    {
+        model.Notice = message;
+        var dialog = new Window { Title = title, Width = 520, SizeToContent = SizeToContent.Height, CanResize = false, WindowStartupLocation = WindowStartupLocation.CenterOwner, ShowInTaskbar = false };
+        var close = new Button { Content = "OK", Classes = { "primary" }, HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right };
+        close.Click += (_, _) => dialog.Close();
+        dialog.Content = new StackPanel { Margin = new Thickness(28), Spacing = 20, Children = { new TextBlock { Text = title, FontSize = 22, FontWeight = FontWeight.SemiBold }, new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap }, close } };
+        await dialog.ShowDialog(this);
     }
     private async void BrowseData(object? sender, RoutedEventArgs e) { var folder = await Folder("Choose this server's Saved folder"); if (folder is not null) DataFolder.Text = folder; }
     private async void BrowseBackups(object? sender, RoutedEventArgs e) { var folder = await Folder("Choose a backup folder outside the server"); if (folder is not null) BackupFolder.Text = folder; }

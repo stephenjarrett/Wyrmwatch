@@ -21,6 +21,92 @@ public class TestApp
 public class SmokeTests
 {
     [AvaloniaFact]
+    public async Task ImportReviewsFoldersAndPastedLauncherPathsWithoutExecutingOrChangingFiles()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "wyrmwatch-ui-" + Guid.NewGuid().ToString("N"));
+        var install = Path.Combine(root, "existing-server");
+        var saved = Path.Combine(install, "RSDragonwilds", "Saved"); Directory.CreateDirectory(saved);
+        var launcher = Path.Combine(install, OperatingSystem.IsWindows() ? "RSDragonwildsServer.exe" : "RSDragonwildsServer.sh");
+        File.WriteAllText(launcher, "read-only import fixture, not an executable");
+        var world = Path.Combine(saved, "world.sav"); File.WriteAllText(world, "preserved world");
+        var backup = Path.Combine(root, "backups");
+        var dialog = new ImportServerDialog("", []); dialog.Show();
+        try
+        {
+            var fields = dialog.GetLogicalDescendants().OfType<TextBox>().ToArray();
+            var location = fields.Single(t => t.Name == "ImportLocation");
+            fields.Single(t => t.Name == "ImportBackupFolder").Text = backup;
+            var import = dialog.GetLogicalDescendants().OfType<Button>().Single(b => Equals(b.Content, "Import server"));
+            var confirmation = dialog.GetLogicalDescendants().OfType<CheckBox>().Single();
+            foreach (var input in new[] { install, "\"" + launcher + "\"" })
+            {
+                location.Text = input;
+                Assert.False(import.IsEnabled); Assert.False(confirmation.IsChecked);
+                await dialog.ReviewAsync();
+                Assert.Equal(saved, fields.Single(t => t.Name == "ImportSavedFolder").Text);
+                confirmation.IsChecked = true; Assert.True(import.IsEnabled);
+                Assert.Equal("preserved world", File.ReadAllText(world));
+                Assert.Equal("read-only import fixture, not an executable", File.ReadAllText(launcher));
+                Assert.False(Directory.Exists(backup));
+                Assert.Equal(2, Directory.EnumerateFiles(install, "*", SearchOption.AllDirectories).Count());
+            }
+        }
+        finally { dialog.Close(); if (SafePaths.Within(root, Path.GetTempPath())) Directory.Delete(root, true); }
+    }
+
+    [AvaloniaFact]
+    public async Task InstallingIntoAnOccupiedFolderShowsAnErrorAndPreservesFiles()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "wyrmwatch-ui-" + Guid.NewGuid().ToString("N"));
+        var install = Path.Combine(root, "games"); Directory.CreateDirectory(install);
+        var existing = Path.Combine(install, "existing-world.sav"); File.WriteAllText(existing, "keep this world");
+        Program.HeadlessTest = true; Program.Demo = false; Program.DataDirectory = Path.Combine(root, "workspace");
+        var window = new MainWindow(); window.Show();
+        try
+        {
+            var operation = window.InstallNewServerAsync(install);
+            var dialog = await WaitForSetupDialog(window);
+            Assert.Equal("Could not install server", dialog.Title);
+            var message = string.Join("\n", dialog.GetLogicalDescendants().OfType<TextBlock>().Select(t => t.Text));
+            Assert.Contains(install, message); Assert.Contains("new empty subfolder", message);
+            Assert.Contains("Import existing server", message);
+            dialog.Close(); await operation;
+            Assert.Empty(((WorkspaceModel)window.DataContext!).Profiles);
+            Assert.Equal("keep this world", File.ReadAllText(existing));
+            Assert.Single(Directory.EnumerateFileSystemEntries(install));
+        }
+        finally { foreach (var dialog in window.OwnedWindows.ToArray()) dialog.Close(); window.Close(); if (SafePaths.Within(root, Path.GetTempPath())) Directory.Delete(root, true); }
+    }
+
+    [AvaloniaFact]
+    public async Task NewInstallationShowsItsDestinationAndCancellationChangesNothing()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "wyrmwatch-ui-" + Guid.NewGuid().ToString("N"));
+        var install = Path.Combine(root, "new-server"); Directory.CreateDirectory(install);
+        Program.HeadlessTest = true; Program.Demo = false; Program.DataDirectory = Path.Combine(root, "workspace");
+        var window = new MainWindow(); window.Show();
+        try
+        {
+            var operation = window.InstallNewServerAsync(install);
+            var dialog = await WaitForSetupDialog(window);
+            Assert.Equal("Install a new server?", dialog.Title);
+            Assert.Contains(install, string.Join("\n", dialog.GetLogicalDescendants().OfType<TextBlock>().Select(t => t.Text)));
+            dialog.Close(false); await operation;
+            Assert.Empty(((WorkspaceModel)window.DataContext!).Profiles);
+            Assert.Empty(Directory.EnumerateFileSystemEntries(install));
+            Assert.False(File.Exists(Path.Combine(Program.DataDirectory, "settings.json")));
+        }
+        finally { foreach (var dialog in window.OwnedWindows.ToArray()) dialog.Close(); window.Close(); if (SafePaths.Within(root, Path.GetTempPath())) Directory.Delete(root, true); }
+    }
+
+    private static async Task<Window> WaitForSetupDialog(Window owner)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        while (!owner.OwnedWindows.Any() && DateTime.UtcNow < deadline) await Task.Delay(10);
+        return Assert.Single(owner.OwnedWindows);
+    }
+
+    [AvaloniaFact]
     public void SelectedNavigationRemainsReadableAcrossThemeChanges()
     {
         var root = Path.Combine(Path.GetTempPath(), "wyrmwatch-ui-" + Guid.NewGuid().ToString("N"));

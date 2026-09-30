@@ -32,7 +32,9 @@ An X11/XWayland desktop and Avalonia's system libraries are required. Linux mana
 
 ## First launch
 
-Choose **Import existing server**, select that server's launcher and actual Saved directory, review the folders, and confirm the connection. Importing preserves the installation and game files. Create a backup before enabling maintenance. Automatic maintenance, background services, and remote access remain off until you configure them.
+Choose **Import existing server**, then select its installation folder or paste a launcher path directly into the dialog. Review the detected Saved directory (or select the server's actual Saved directory), and confirm the connection. Reviewing never executes the launcher. Importing preserves the installation and game files. Create a backup before enabling maintenance. Automatic maintenance, background services, and remote access remain off until you configure them.
+
+For **Install new server**, create and select an empty folder dedicated to that server, rather than a populated parent such as `C:\Games`. Confirm the destination to begin the download; progress appears in Activity. Existing files are never overwritten by a new installation.
 
 ## Upgrade and uninstall
 
