@@ -349,7 +349,7 @@ public partial class MainWindow : Window
     private void OpenDistributionDocument(string name)
     {
         var path = Path.Combine(AppContext.BaseDirectory, name == "LICENSE" ? "LICENSE.txt" : name);
-        OpenPath(File.Exists(path) ? path : $"https://github.com/stephenjarrett/Wyrmwatch/blob/sjarrett/initial-mvp/{name}");
+        OpenPath(File.Exists(path) ? path : $"https://github.com/stephenjarrett/Wyrmwatch/blob/master/{name}");
     }
     private void OpenPath(string path) { try { if (!path.StartsWith("https://") && !File.Exists(path) && !Directory.Exists(path)) throw new IOException("The file or folder does not exist yet."); Process.Start(new ProcessStartInfo(path) { UseShellExecute = true }); } catch (Exception e) { model.Notice = e.Message; } }
     private async void RefreshDiagnostics(object? sender, RoutedEventArgs e)

@@ -1,4 +1,4 @@
-Use sjarrett/ for Git branches unless explicitly instructed otherwise.
+The default branch is master. Use sjarrett/ for feature branches unless explicitly instructed otherwise.
 
 Never use a real game installation for tests. All integration fixtures must live in unique temporary directories. Opening the app must never adopt an unconfigured server. Installation, game settings changes, and server start/stop require a user action or explicitly enabled maintenance. Automatic maintenance is opt-in. Unknown player activity must defer automatic maintenance.
 
