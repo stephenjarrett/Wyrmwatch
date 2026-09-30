@@ -5,7 +5,25 @@ using Wyrmwatch.Core;
 
 namespace Wyrmwatch.Desktop;
 
-internal enum WorkspacePage { Overview, ServerSettings, Resources, Automation, Backups, Activity, AppSettings, Help, Remote, AppUpdates }
+internal enum WorkspacePage { Servers, ServerSettings, Resources, Automation, Backups, Activity, AppSettings, Help, AppUpdates }
+
+public sealed class ServerRow(ServerProfile profile) : INotifyPropertyChanged
+{
+    public event PropertyChangedEventHandler? PropertyChanged;
+    public string Id => profile.Id;
+    public string Name => profile.Name;
+    public string Path => profile.InstallPath;
+    public string Status { get; private set; } = "Checking…";
+    public string Metrics { get; private set; } = "Waiting for the manager";
+    public void Replace(ServerProfile value) { if (profile == value) return; profile = value; PropertyChanged?.Invoke(this, new(null)); }
+    public void Update(ServerSnapshot? state)
+    {
+        var status = state is null ? "Checking…" : !state.Accessible ? "Needs attention" : state.Running ? "Running" : "Stopped";
+        var metrics = state is null ? "Waiting for the manager" : !state.Accessible ? state.ActivityReason : !state.Running ? $"UDP {profile.Port} · {(File.Exists(profile.Launcher) ? "Ready to start" : "Launcher missing")}" : $"{state.Players?.ToString() ?? "?"} players · CPU {state.CpuPercent:0.0}% · {state.MemoryBytes / 1073741824d:0.0} GB";
+        if (Status == status && Metrics == metrics) return;
+        Status = status; Metrics = metrics; PropertyChanged?.Invoke(this, new(null));
+    }
+}
 
 public sealed record BackupRow(BackupInfo Info)
 {
@@ -24,6 +42,22 @@ public sealed class WorkspaceModel : INotifyPropertyChanged
     public void Refresh([CallerMemberName] string? name = null) => PropertyChanged?.Invoke(this, new(name));
     private void Set<T>(ref T field, T value, [CallerMemberName] string? name = null) { if (EqualityComparer<T>.Default.Equals(field, value)) return; field = value; Refresh(name); }
     public ObservableCollection<ServerProfile> Profiles { get; } = [];
+    public ObservableCollection<ServerRow> ServerRows { get; } = [];
+    private ServerRow? selectedRow;
+    public ServerRow? SelectedRow { get => selectedRow; set => Set(ref selectedRow, value); }
+    public string ServerCount => $"{Profiles.Count} saved server{(Profiles.Count == 1 ? "" : "s")}";
+    public bool CanManage => !Busy && !Program.Demo;
+    public void SyncRows()
+    {
+        foreach (var row in ServerRows.Where(r => Profiles.All(p => p.Id != r.Id)).ToArray()) ServerRows.Remove(row);
+        foreach (var profile in Profiles)
+        {
+            var row = ServerRows.FirstOrDefault(r => r.Id == profile.Id);
+            if (row is null) ServerRows.Add(new(profile)); else row.Replace(profile);
+        }
+        SelectedRow = ServerRows.FirstOrDefault(r => r.Id == SelectedProfile?.Id);
+        Refresh(nameof(ServerCount));
+    }
     public ObservableCollection<BackupRow> Backups { get; } = [];
     public ObservableCollection<OperationRow> Operations { get; } = [];
     private ServerProfile? selectedProfile;
@@ -46,12 +80,12 @@ public sealed class WorkspaceModel : INotifyPropertyChanged
         false => "This server is stopped. Existing settings are backed up before changes are saved.",
         _ => "Waiting for a verified server state before game configuration can be saved."
     };
-    private void RefreshActions() { foreach (var name in new[] { nameof(CanAct), nameof(CanStart), nameof(CanStop), nameof(CanConfigure), nameof(ConfigurationHint) }) Refresh(name); }
+    private void RefreshActions() { foreach (var name in new[] { nameof(CanAct), nameof(CanStart), nameof(CanStop), nameof(CanConfigure), nameof(CanManage), nameof(ConfigurationHint) }) Refresh(name); }
     private bool showServerPicker = true;
     public bool ShowServerPicker { get => showServerPicker; set => Set(ref showServerPicker, value); }
-    private string pageTitle = "Your server, at a glance.";
+    private string pageTitle = "Servers";
     public string PageTitle { get => pageTitle; set => Set(ref pageTitle, value); }
-    private string pageSubtitle = "A quieter way to keep your world running.";
+    private string pageSubtitle = "Choose a server to manage, or add a new world.";
     public string PageSubtitle { get => pageSubtitle; set => Set(ref pageSubtitle, value); }
     private string status = "Not connected";
     public string Status { get => status; set => Set(ref status, value); }

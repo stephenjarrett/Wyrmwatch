@@ -18,6 +18,8 @@ public sealed class AgentClient(string workspace) : IDisposable
     private readonly SemaphoreSlim connectionGate = new(1, 1);
     private HttpClient? http;
     private AgentEndpoint? endpoint;
+    private bool suppliedConnection;
+    internal AgentClient(string workspace, HttpClient connection) : this(workspace) { http = connection; suppliedConnection = true; }
     private int requests;
     private bool suspended;
     private string? lastLog;
@@ -25,7 +27,6 @@ public sealed class AgentClient(string workspace) : IDisposable
     public bool Busy => requests > 0 || status.Busy;
     public bool Background => status.Background;
     public bool PersistentHost => status.PersistentHost;
-    public string? RemoteAddress => status.RemoteAddress;
     public CachedHistory History { get; } = new();
     public event Action<string>? Log;
     public event Action? Changed;
@@ -36,6 +37,7 @@ public sealed class AgentClient(string workspace) : IDisposable
         try
         {
             if (suspended) throw new IOException("The background manager is changing versions or shutting down.");
+            if (suppliedConnection) return;
             if (http is not null && endpoint is not null && Alive(endpoint)) return;
             http?.Dispose(); http = null;
             AgentEndpoint? found = null;
@@ -60,6 +62,8 @@ public sealed class AgentClient(string workspace) : IDisposable
             if (found is null || !Alive(found)) throw new IOException("The background manager did not become ready in time.");
             var address = new Uri(found.Address);
             if (address.Scheme != "http" || !address.IsLoopback || address.AbsolutePath != "/" || address.UserInfo.Length != 0) throw new IOException("The local manager endpoint is invalid.");
+            var version = typeof(AgentClient).Assembly.GetName().Version!.ToString(3);
+            if (found.Version != version) throw new IOException($"The background manager is version {found.Version}; this app needs {version}. Quit the previous Wyrmwatch app when idle, or restart your configured Wyrmwatch service, then reopen this version. No server was stopped or changed.");
             endpoint = found;
             http = new HttpClient { BaseAddress = address, Timeout = TimeSpan.FromMinutes(45) };
             http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", found.Secret);
@@ -135,6 +139,8 @@ public sealed class AgentClient(string workspace) : IDisposable
     }
     public Task SavePreferencesAsync(ManagerSettings settings) => SendAsync("admin/preferences", HttpMethod.Put, settings);
     public Task<ServerProfile> ImportProfileAsync(ServerProfile profile) => PostAsync<ServerProfile>("admin/import", profile);
+    public Task<ServerProfile> CreateServerAsync(ServerCreationPlan plan) => PostAsync<ServerProfile>("admin/create", new CreateServerRequest(plan.Profile, plan.Configuration.ToDictionary()));
+    public IReadOnlyList<ManagedServer> Servers => status.Servers;
     public async Task StopAgentAsync()
     {
         await EnsureStartedAsync();

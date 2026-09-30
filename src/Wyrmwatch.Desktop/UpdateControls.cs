@@ -12,13 +12,12 @@ public partial class MainWindow
     private PreparedUpdate? preparedUpdate;
     private bool checkingApp, downloadingApp;
     private CancellationTokenSource? appDownloadCancellation;
-    private DateTimeOffset nextAppCheck = DateTimeOffset.MinValue;
     private static string AppRuntime => OperatingSystem.IsWindows() ? "win-x64" : "linux-x64";
     private async void CheckManagerUpdate(object? sender, RoutedEventArgs e) => await CheckManagerUpdateAsync();
     private async Task CheckManagerUpdateAsync()
     {
         if (checkingApp || downloadingApp || Program.Demo || Program.HeadlessTest) return;
-        checkingApp = true; nextAppCheck = DateTimeOffset.UtcNow.AddHours(6);
+        checkingApp = true;
         try
         {
             AppUpdateStatus.Text = "Checking published releases…";

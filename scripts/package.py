@@ -16,7 +16,7 @@ executable = 'Wyrmwatch.exe' if args.runtime == 'win-x64' else 'Wyrmwatch'
 agent = 'agent/Wyrmwatch.Agent.exe' if args.runtime == 'win-x64' else 'agent/Wyrmwatch.Agent'
 required = [executable, agent, 'Wyrmwatch.Core.dll', 'Wyrmwatch.Platform.dll',
             'agent/Wyrmwatch.Core.dll', 'agent/Wyrmwatch.Platform.dll',
-            'agent/wwwroot/index.html', 'LICENSE', 'LICENSE.txt', 'NOTICE',
+            'LICENSE', 'LICENSE.txt', 'NOTICE',
             'SOURCE.md', 'THIRD-PARTY-NOTICES.md', 'Wyrmwatch-source.zip',
             'licenses/third-party/aspnetcore-LICENSE.txt', 'licenses/third-party/aspnetcore-NOTICES.txt',
             'licenses/third-party/dotnet-NOTICES.txt', 'service/install-linux-service.sh']

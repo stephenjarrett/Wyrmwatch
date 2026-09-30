@@ -7,17 +7,6 @@ namespace Wyrmwatch.Core.Tests;
 
 public class ExtensionSafetyTests
 {
-    [Theory]
-    [InlineData("Viewer", "backup", false)]
-    [InlineData("Operator", "restore", false)]
-    [InlineData("Maintainer", "restore", true)]
-    public void AccessPolicyRestrictsActionsServerScopeAndExpiry(string role, string action, bool allowed)
-    {
-        var now = DateTimeOffset.UtcNow; var grant = new AccessGrant("id", "test", "", role, "one", now.AddDays(1));
-        Assert.Equal(allowed, AccessPolicy.Allows(grant, "one", action, now));
-        Assert.False(AccessPolicy.Allows(grant, "two", action, now)); Assert.False(AccessPolicy.Allows(grant, "one", action, now.AddDays(2)));
-        Assert.False(AccessPolicy.Allows(grant, "one", "configuration", now));
-    }
     [Fact]
     public async Task AppUpdateRejectsWrongHashesAndEscapingArchivePathsBeforeInstallation()
     {

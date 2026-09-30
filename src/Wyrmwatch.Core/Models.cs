@@ -56,7 +56,6 @@ public sealed record ManagerSettings
     public bool LaunchAtLogin { get; init; }
     public bool BackgroundMode { get; init; }
     public string Language { get; init; } = "en";
-    public bool CheckAppUpdates { get; init; }
 }
 
 public sealed record ServerSnapshot(bool Running, bool Accessible, int? Players, string ActivityReason,

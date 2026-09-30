@@ -43,6 +43,7 @@ public sealed class ServerCreationPlan
         if (Directory.Exists(Profile.InstallPath) && Directory.EnumerateFileSystemEntries(Profile.InstallPath).Any())
             throw new IOException("This server folder already contains files:\n" + Profile.InstallPath
                 + "\n\nChoose a different folder name. To use an existing server, cancel and choose Import existing server. No files were changed.");
+        if (Directory.Exists(Profile.InstallPath)) throw new IOException("This folder already exists. Choose a new child folder name so setup can finish without replacing anything.");
     }
 
     public static string SuggestFolderName(string name)

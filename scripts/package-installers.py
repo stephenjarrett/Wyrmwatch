@@ -56,7 +56,7 @@ else:
             'Homepage: https://github.com/stephenjarrett/Wyrmwatch\n'
             'Description: Desktop manager for Dragonwilds dedicated servers\n'
             ' Manage saved server connections, verified backups, and optional maintenance.\n'
-            ' Services and remote access remain disabled until explicitly configured.\n', encoding='utf-8')
+            ' Services and automatic maintenance remain disabled until explicitly configured.\n', encoding='utf-8')
         # Refuse package replacement/removal while the packaged manager is running.
         # Never stop a process, enable a service, or remove user/game data here.
         guard = '''#!/bin/sh

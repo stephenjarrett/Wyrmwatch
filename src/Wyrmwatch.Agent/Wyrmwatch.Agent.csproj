@@ -5,5 +5,4 @@
     <ProjectReference Include="../Wyrmwatch.Core/Wyrmwatch.Core.csproj" />
     <ProjectReference Include="../Wyrmwatch.Platform/Wyrmwatch.Platform.csproj" />
   </ItemGroup>
-  <ItemGroup><Content Update="wwwroot/**" CopyToOutputDirectory="PreserveNewest" /></ItemGroup>
 </Project>

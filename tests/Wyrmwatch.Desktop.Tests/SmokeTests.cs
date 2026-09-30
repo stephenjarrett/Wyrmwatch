@@ -11,12 +11,13 @@ using Wyrmwatch.Core;
 using Wyrmwatch.Desktop;
 
 [assembly: AvaloniaTestApplication(typeof(Wyrmwatch.Desktop.Tests.TestApp))]
+[assembly: CollectionBehavior(DisableTestParallelization = true)]
 
 namespace Wyrmwatch.Desktop.Tests;
 
 public class TestApp
 {
-    public static AppBuilder BuildAvaloniaApp() => AppBuilder.Configure<App>().UseHeadless(new AvaloniaHeadlessPlatformOptions());
+    public static AppBuilder BuildAvaloniaApp() => AppBuilder.Configure<App>().WithInterFont().UseSkia().UseHeadless(new AvaloniaHeadlessPlatformOptions { UseHeadlessDrawing = false });
 }
 public class SmokeTests
 {
@@ -134,7 +135,7 @@ public class SmokeTests
     }
 
     [AvaloniaFact]
-    public async Task CreateWizardReportsFailureWithoutRepeatingInstallation()
+    public async Task CreateWizardKeepsEntriesAndAllowsRetryAfterFailure()
     {
         var root = Path.Combine(Path.GetTempPath(), "wyrmwatch-ui-" + Guid.NewGuid().ToString("N"));
         var calls = 0;
@@ -145,8 +146,8 @@ public class SmokeTests
             await dialog.AdvanceAsync(); await dialog.AdvanceAsync(); await dialog.AdvanceAsync();
             Assert.Contains("Download failed", Field<TextBlock>(dialog, "CreateMessage").Text);
             Assert.Contains("Setup did not finish", Field<TextBlock>(dialog, "CreateReview").Text);
-            Assert.Equal("Close", Field<Button>(dialog, "CreateNext").Content);
-            await dialog.AdvanceAsync(); Assert.Equal(1, calls); Assert.False(Directory.Exists(root));
+            Assert.Equal("Create Server", Field<Button>(dialog, "CreateNext").Content);
+            await dialog.AdvanceAsync(); Assert.Equal(2, calls); Assert.False(Directory.Exists(root));
         }
         finally { dialog.Close(); if (Directory.Exists(root)) Directory.Delete(root, true); }
     }

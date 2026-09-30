@@ -14,7 +14,7 @@
     "Ui.66354a1d3225": "Remote access",
     "Ui.5808deaecd58": "App updates",
     "Ui.1f799d61952d": "●  Local workspace",
-    "Ui.64d923c20eab": "v0.2.1 · Preview",
+    "Ui.64d923c20eab": "v0.2.2 · Preview",
     "Ui.46e84d8edad0": "Windows + Linux",
     "Ui.5b428863326e": "No server connected",
     "Ui.54a8093e2e9e": "A home for your worlds.",
@@ -192,6 +192,20 @@
     "Ui.93ac4aebd5d0": "Choose a saved server above, or create or import one to get started.",
     "Ui.d0ea7613d951": "These settings belong only to this server. Use Automation to choose its game update and backup schedules.",
     "Ui.85b7eac64dc6": "Update & backup schedules →",
-    "Ui.99159e3dcc4f": "Update schedule →"
+    "Ui.99159e3dcc4f": "Update schedule →",
+    "Ui.68d7beb6df59": "Servers",
+    "Ui.6c597d997629": "Import existing",
+    "Ui.7410fc519703": "+ Create Server",
+    "Ui.e786c960f885": "Your next world starts here",
+    "Ui.529d888b8e88": "Create a fresh server, or import an existing installation to keep playing your world.",
+    "Ui.d1cfd551b99f": "Import reads your existing files. Servers stay stopped until you press Start.",
+    "Ui.d441a8c4efe6": "SELECTED SERVER",
+    "Ui.82963c765306": "Remove from list",
+    "Ui.221ff19c904c": "Schedules",
+    "Ui.ad1c87e7daa6": "Check game update",
+    "Ui.c9b65aa957b7": "Apply game update",
+    "Ui.8f06f076d540": "Manage several saved servers. One server can run at a time.",
+    "Ui.dea3ed7efb4e": "← Servers",
+    "Ui.2868fd6a08b2": "Choose a server to manage, or add a new world."
   }
 }

@@ -23,8 +23,8 @@ public sealed class CreateServerDialog : Window
     private readonly TextBlock message = new() { Name = "CreateMessage", TextWrapping = TextWrapping.Wrap };
     private readonly ProgressBar progress = new() { IsIndeterminate = true, IsVisible = false, Height = 4 };
     private readonly Button next = new() { Name = "CreateNext", Content = "Continue", Classes = { "primary" } };
-    private readonly Button back = new() { Content = "Back", IsVisible = false };
-    private readonly Button cancel = new() { Content = "Cancel" };
+    private readonly Button back = new() { Name = "CreateBack", Content = "Back", IsVisible = false };
+    private readonly Button cancel = new() { Name = "CreateCancel", Content = "Cancel" };
     private readonly StackPanel[] pages;
     private readonly ScrollViewer scroll;
     private readonly IReadOnlyList<ServerProfile> connections;
@@ -132,7 +132,7 @@ public sealed class CreateServerDialog : Window
             if (step == 0)
             {
                 // Validate the required game fields before moving away from their help text.
-                var values = ReadPlan().Configuration;
+                var values = new Dictionary<string, string> { ["OwnerId"] = owner.Text?.Trim() ?? "", ["ServerName"] = serverName.Text?.Trim() ?? "", ["DefaultWorldName"] = world.Text?.Trim() ?? "", ["AdminPassword"] = admin.Text ?? "", ["WorldPassword"] = password.Text ?? "", ["Port"] = "7777" };
                 if (string.IsNullOrWhiteSpace(values["OwnerId"])) throw new ArgumentException("Paste your Player ID from the bottom of Dragonwilds Settings to continue.");
                 _ = GameConfiguration.Merge("", values);
                 step = 1; UpdatePage(); return;
@@ -152,7 +152,7 @@ public sealed class CreateServerDialog : Window
             finished = true;
             stepLabel.Text = "SETUP COMPLETE";
             ((TextBlock)pages[2].Children[0]).Text = "Your server is ready";
-            summary.Text = $"{reviewed.Profile.Name} is ready and stopped.\n\n1. Close this window and press Start on Overview.\n2. In Dragonwilds, open Public Worlds and search for \"{reviewed.Configuration["DefaultWorldName"]}\".\n3. After your first session, create a backup from Backups. Enable schedules in Automation when ready.\n\nFor internet players, see Help & diagnostics for network setup. Your admin password is available in Server settings.";
+            summary.Text = $"{reviewed.Profile.Name} is ready and stopped.\n\n1. Close this window and press Start on Servers.\n2. In Dragonwilds, open Public Worlds and search for \"{reviewed.Configuration["DefaultWorldName"]}\".\n3. After your first session, create a backup. Enable schedules when ready.\n\nYour admin password is available in Edit server.";
             message.Text = "Server downloaded and configured. No game process was started.";
         }
         catch (Exception error)
@@ -160,9 +160,9 @@ public sealed class CreateServerDialog : Window
             message.Text = error.Message;
             if (progress.IsVisible)
             {
-                finished = true; stepLabel.Text = "SETUP NEEDS ATTENTION";
+                stepLabel.Text = "SETUP NEEDS ATTENTION";
                 ((TextBlock)pages[2].Children[0]).Text = "Setup did not finish";
-                summary.Text = "Setup did not finish. Any downloaded files and saved connection have been kept.\n\nCheck Activity for details. If the download completed, finish the game settings in Server settings. If it was interrupted, keep the partial folder and choose a new empty server folder when retrying.\n\nFolder: " + reviewed!.Profile.InstallPath;
+                summary.Text = "Setup did not finish. Existing files were preserved. Check the message below and Activity for details. You can retry here, or use Back to adjust the setup.\n\nDestination: " + reviewed!.Profile.InstallPath;
             }
         }
         finally
@@ -170,6 +170,7 @@ public sealed class CreateServerDialog : Window
             working = false; progress.IsVisible = false;
             next.IsEnabled = back.IsEnabled = cancel.IsEnabled = true;
             foreach (var page in pages) page.IsEnabled = true;
+            if (!finished && step == 2) next.Content = "Create Server";
             if (finished) { next.Content = "Close"; back.IsVisible = cancel.IsVisible = false; }
         }
     }

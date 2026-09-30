@@ -4,7 +4,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
     <Deterministic>true</Deterministic>
-    <Version>0.2.1</Version>
+    <Version>0.2.2</Version>
     <Authors>Stephen Jarrett</Authors>
     <Copyright>Copyright (c) 2026 Stephen Jarrett and Wyrmwatch contributors.</Copyright>
     <PackageLicenseExpression>AGPL-3.0-only</PackageLicenseExpression>

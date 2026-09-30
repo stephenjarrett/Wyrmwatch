@@ -22,6 +22,9 @@
     <Style Selector="ListBox.nav ListBoxItem"><Setter Property="CornerRadius" Value="8" /><Setter Property="Padding" Value="14,12" /><Setter Property="Margin" Value="0,3" /><Setter Property="FontSize" Value="14" /></Style>
     <Style Selector="ListBox.nav ListBoxItem:selected /template/ ContentPresenter"><Setter Property="Background" Value="{DynamicResource NavSelectedBrush}" /><Setter Property="Foreground" Value="{DynamicResource NavSelectedTextBrush}" /></Style>
     <Style Selector="ListBox.nav ListBoxItem:selected TextBlock"><Setter Property="Foreground" Value="{DynamicResource NavSelectedTextBrush}" /></Style>
+    <Style Selector="ListBox.servers ListBoxItem"><Setter Property="CornerRadius" Value="9" /><Setter Property="Margin" Value="0,3" /></Style>
+    <Style Selector="ListBox.servers ListBoxItem:selected /template/ ContentPresenter"><Setter Property="Background" Value="{DynamicResource NavSelectedBrush}" /><Setter Property="Foreground" Value="{DynamicResource NavSelectedTextBrush}" /></Style>
+    <Style Selector="ListBox.servers ListBoxItem:selected TextBlock"><Setter Property="Foreground" Value="{DynamicResource NavSelectedTextBrush}" /></Style>
   </Application.Styles>
   <Application.Resources>
     <ResourceDictionary>
