@@ -225,7 +225,8 @@ public class SmokeTests
     {
         var root = Path.Combine(Path.GetTempPath(), "wyrmwatch-ui-" + Guid.NewGuid().ToString("N"));
         var install = Path.Combine(root, "install"); Directory.CreateDirectory(install);
-        var launcher = Path.Combine(install, "RSDragonwildsServer.exe"); File.WriteAllText(launcher, "fixture only");
+        var launcher = Path.Combine(install, OperatingSystem.IsWindows() ? "RSDragonwildsServer.exe" : "RSDragonwildsServer.sh");
+        File.WriteAllText(launcher, "fixture only");
         var saved = Path.Combine(root, "existing-data", "Saved");
         var worlds = Path.Combine(saved, "SaveGames"); Directory.CreateDirectory(worlds);
         var world = Path.Combine(worlds, "existing.sav"); File.WriteAllText(world, "preserve custom world");
