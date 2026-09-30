@@ -6,6 +6,16 @@ using System.Formats.Tar;
 
 namespace Wyrmwatch.Core;
 
+internal sealed class CommandExecutionException(string executable, int exitCode, string output)
+    : IOException($"{Path.GetFileName(executable)} exited with code {exitCode}. See Activity for details.")
+{
+    internal int ExitCode { get; } = exitCode;
+    internal string Output { get; } = output;
+}
+
+internal delegate Task<string> CommandExecutor(string executable, IEnumerable<string> arguments,
+    string workingDirectory, Action<string> log, TimeSpan timeout, CancellationToken token);
+
 public static class CommandRunner
 {
     public static async Task<string> RunAsync(string executable, IEnumerable<string> arguments, string workingDirectory,
@@ -28,7 +38,7 @@ public static class CommandRunner
         try
         {
             await Task.WhenAll(Read(process.StandardOutput), Read(process.StandardError), process.WaitForExitAsync(deadline.Token));
-            if (process.ExitCode != 0) throw new IOException($"{Path.GetFileName(executable)} exited with code {process.ExitCode}. See Activity for details.");
+            if (process.ExitCode != 0) throw new CommandExecutionException(executable, process.ExitCode, captured.ToString());
             return captured.ToString();
         }
         catch (OperationCanceledException)
@@ -118,18 +128,40 @@ public sealed class SteamClient(string toolsDirectory) : ISteamClient
         await gate.WaitAsync(token);
         try
         {
-            await EnsureAsync(log, token);
+            var downloaded = await EnsureAsync(log, token);
             var args = new List<string> { "+force_install_dir", profile.InstallPath, "+login", "anonymous", "+app_update", "4019830" };
             if (repair) args.Add("validate"); args.Add("+quit");
-            var output = await CommandRunner.RunAsync(Executable, args, Path.GetDirectoryName(Executable)!, log, TimeSpan.FromMinutes(45), token);
+            var output = await RunInstallAsync(Executable, args, Path.GetDirectoryName(Executable)!, log,
+                TimeSpan.FromMinutes(45), token, downloaded, CommandRunner.RunAsync);
             if (!output.Contains("Success! App '4019830' fully installed", StringComparison.OrdinalIgnoreCase)) throw new IOException("SteamCMD did not confirm a successful installation.");
             if (!File.Exists(profile.Launcher)) throw new IOException("SteamCMD finished, but the server launcher is missing.");
         }
         finally { gate.Release(); }
     }
-    private async Task EnsureAsync(Action<string> log, CancellationToken token)
+    internal static async Task<string> RunInstallAsync(string executable, IEnumerable<string> arguments,
+        string workingDirectory, Action<string> log, TimeSpan timeout, CancellationToken token,
+        bool downloaded, CommandExecutor run)
     {
-        if (File.Exists(Executable)) return;
+        var args = arguments.ToList();
+        var elapsed = Stopwatch.StartNew();
+        try { return await run(executable, args, workingDirectory, log, timeout, token); }
+        catch (CommandExecutionException error) when (downloaded && error.ExitCode == 7
+            && error.Output.Contains("Update complete, launching...", StringComparison.OrdinalIgnoreCase)
+            && error.Output.Contains("ERROR! Failed to install app '4019830' (Missing configuration)", StringComparison.OrdinalIgnoreCase))
+        {
+            token.ThrowIfCancellationRequested();
+            var remaining = timeout - elapsed.Elapsed;
+            if (remaining <= TimeSpan.Zero) throw;
+            // A freshly acquired SteamCMD can update itself and fail to load app metadata.
+            // Retry this exact installation once; other failures and subsequent failures propagate.
+            log("SteamCMD completed its first update but could not load the server configuration. Refreshing Steam metadata and retrying once.");
+            args.InsertRange(args.IndexOf("+app_update"), ["+app_info_update", "1"]);
+            return await run(executable, args, workingDirectory, log, remaining, token);
+        }
+    }
+    private async Task<bool> EnsureAsync(Action<string> log, CancellationToken token)
+    {
+        if (File.Exists(Executable)) return false;
         var folder = Path.GetDirectoryName(Executable)!; Directory.CreateDirectory(folder); SafePaths.NoLinks(folder);
         log("Downloading SteamCMD from Valve…");
         using var client = new HttpClient { Timeout = TimeSpan.FromMinutes(3) };
@@ -162,5 +194,6 @@ public sealed class SteamClient(string toolsDirectory) : ISteamClient
                 File.SetUnixFileMode(target, entry.Mode);
             }
         }
+        return true;
     }
 }
