@@ -14,18 +14,29 @@ output = (root / args.output_root).resolve()
 folder = output / args.runtime
 executable = 'Wyrmwatch.exe' if args.runtime == 'win-x64' else 'Wyrmwatch'
 agent = 'agent/Wyrmwatch.Agent.exe' if args.runtime == 'win-x64' else 'agent/Wyrmwatch.Agent'
-required = [executable, agent, 'agent/wwwroot/index.html', 'LICENSE', 'LICENSE.txt', 'NOTICE',
+required = [executable, agent, 'Wyrmwatch.Core.dll', 'Wyrmwatch.Platform.dll',
+            'agent/Wyrmwatch.Core.dll', 'agent/Wyrmwatch.Platform.dll',
+            'agent/wwwroot/index.html', 'LICENSE', 'LICENSE.txt', 'NOTICE',
             'SOURCE.md', 'THIRD-PARTY-NOTICES.md', 'Wyrmwatch-source.zip',
             'licenses/third-party/aspnetcore-LICENSE.txt', 'licenses/third-party/aspnetcore-NOTICES.txt',
             'licenses/third-party/dotnet-NOTICES.txt', 'service/install-linux-service.sh']
+if args.runtime == 'win-x64':
+    required += ['Wyrmwatch.Signal.exe', 'Wyrmwatch.Signal.dll',
+                 'Wyrmwatch.Signal.deps.json', 'Wyrmwatch.Signal.runtimeconfig.json']
 for name in required:
     if not (folder / name).is_file():
         raise RuntimeError(f'Missing {name}')
+for file in folder.rglob('Dragonwilds.*'):
+    if file.is_file():
+        raise RuntimeError(f'Stale application file: {file}. Publish to an empty output folder before packaging.')
 with zipfile.ZipFile(folder / 'Wyrmwatch-source.zip') as source:
     if source.testzip() is not None:
         raise RuntimeError('Damaged source archive')
     for name in ('LICENSE', 'NOTICE', 'scripts/build.ps1', 'scripts/package.py',
-                 'src/Wyrmwatch.Agent/Program.cs', 'src/Wyrmwatch.Desktop/MainWindow.axaml'):
+                 'src/Wyrmwatch.Agent/Program.cs', 'src/Wyrmwatch.Desktop/MainWindow.axaml',
+                 'src/Wyrmwatch.Core/Wyrmwatch.Core.csproj',
+                 'src/Wyrmwatch.Platform/Wyrmwatch.Platform.csproj',
+                 'src/Wyrmwatch.Signal/Wyrmwatch.Signal.csproj'):
         if source.read(name) != (root / name).read_bytes():
             raise RuntimeError(f'Stale source: {name}. Stage new files and rebuild first.')
     if any('/bin/' in n or '/obj/' in n or n.startswith(('.git/', '.tools/')) for n in source.namelist()):

@@ -1,6 +1,6 @@
 # Focused verification
 
-Run `dotnet test tests/Dragonwilds.Core.Tests -c Release` and `dotnet test tests/Wyrmwatch.Desktop.Tests -c Release`. CI runs both suites on Windows and Ubuntu and publishes portable builds.
+Run `dotnet test tests/Wyrmwatch.Core.Tests -c Release` and `dotnet test tests/Wyrmwatch.Desktop.Tests -c Release`. CI runs both suites on Windows and Ubuntu and publishes portable builds.
 
 All server fixtures live in unique temporary directories. Process tests launch the small `FixtureServer` executable supplied by this repository, bind a loopback UDP port, and accept graceful shutdown signals. They never launch SteamCMD or a real game server. Cleanup matches each fixture's exact executable path before terminating any leftover test process.
 

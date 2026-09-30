@@ -1,4 +1,4 @@
-using Dragonwilds.Core;
+using Wyrmwatch.Core;
 using Microsoft.Win32;
 
 namespace Wyrmwatch.Desktop;

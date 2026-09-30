@@ -85,7 +85,7 @@ Install the [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0).
 
 ```powershell
 dotnet build Wyrmwatch.slnx
-dotnet test tests/Dragonwilds.Core.Tests
+dotnet test tests/Wyrmwatch.Core.Tests
 dotnet test tests/Wyrmwatch.Desktop.Tests
 dotnet run --project src/Wyrmwatch.Desktop -- --demo
 ./scripts/build.ps1 -Runtime win-x64
@@ -94,4 +94,4 @@ dotnet run --project src/Wyrmwatch.Desktop -- --demo
 
 Focused checks cover backup integrity and restore preservation, update failures and deferral, configuration preservation, a disposable Windows console shutdown, remote authorization and revocation, background lifecycle, app-package integrity, and desktop navigation/theme/language flows. All game-data fixtures are temporary. No tests use a real server. GitHub Actions runs the same checks and packages both targets. Publishing a `v*` tag invokes the release workflow; it rejects a tag that does not match the project version.
 
-`Dragonwilds.Core` is independent of the UI. `Dragonwilds.Windows` contains both process adapters (Windows and Linux); `Dragonwilds.Signal` is the Windows console helper. `Wyrmwatch.Agent` runs maintenance and the optional remote dashboard. `Wyrmwatch.Desktop` contains the Avalonia interface. Linux desktop, package, service restart, and process control checks run against disposable fixtures; actual game hosting still requires separate validation.
+`Wyrmwatch.Core` is independent of the UI. `Wyrmwatch.Platform` contains both process adapters (Windows and Linux); `Wyrmwatch.Signal` is the Windows console helper. `Wyrmwatch.Agent` runs maintenance and the optional remote dashboard. `Wyrmwatch.Desktop` contains the Avalonia interface. Linux desktop, package, service restart, and process control checks run against disposable fixtures; actual game hosting still requires separate validation.

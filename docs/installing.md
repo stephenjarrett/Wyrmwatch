@@ -4,7 +4,7 @@ Download files from the [official releases page](https://github.com/stephenjarre
 
 ## Windows x64
 
-Download `Wyrmwatch-0.2.0-win-x64-setup.exe` and run it. Setup installs for your current user without administrator rights and adds a Start menu shortcut. A desktop shortcut is optional. Open Wyrmwatch from the Start menu when ready.
+Download `Wyrmwatch-0.2.1-win-x64-setup.exe` and run it. Setup installs for your current user without administrator rights and adds a Start menu shortcut. A desktop shortcut is optional. Open Wyrmwatch from the Start menu when ready.
 
 The setup file is currently unsigned. Check that it came from the official repository and compare its SHA-256 value with the release asset. No signing certificate is bundled or installed.
 
@@ -12,10 +12,10 @@ For a portable installation, download `Wyrmwatch-win-x64.zip`, extract the entir
 
 ## Ubuntu / Debian x64
 
-Download `Wyrmwatch-0.2.0-linux-amd64.deb`. In its download directory:
+Download `Wyrmwatch-0.2.1-linux-amd64.deb`. In its download directory:
 
 ```sh
-sudo apt install ./Wyrmwatch-0.2.0-linux-amd64.deb
+sudo apt install ./Wyrmwatch-0.2.1-linux-amd64.deb
 ```
 
 Open **Wyrmwatch** in the application menu, or run `wyrmwatch`. Run the desktop as your regular user. Installation requires administrative privileges; normal use does not. Ubuntu 24.04 is the tested desktop/package environment. The package declares its shared-library requirements for compatible Debian-based systems.

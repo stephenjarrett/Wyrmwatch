@@ -16,7 +16,7 @@ internal static class Program
         var parentIndex = Array.IndexOf(args, "--wait-for-parent");
         if (parentIndex >= 0 && parentIndex + 2 < args.Length && int.TryParse(args[parentIndex + 1], out var parentId))
         {
-            try { using var parent = System.Diagnostics.Process.GetProcessById(parentId); if (Dragonwilds.Core.ProcessLifetime.Token(parent) == args[parentIndex + 2] && !parent.WaitForExit(30000)) return; }
+            try { using var parent = System.Diagnostics.Process.GetProcessById(parentId); if (Wyrmwatch.Core.ProcessLifetime.Token(parent) == args[parentIndex + 2] && !parent.WaitForExit(30000)) return; }
             catch (Exception error) when (error is ArgumentException or InvalidOperationException) { }
         }
         ApplyStartup = args.Contains("--apply-startup");

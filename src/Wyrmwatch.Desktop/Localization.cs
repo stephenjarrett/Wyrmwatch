@@ -3,7 +3,7 @@ using System.Text;
 using System.Text.Json;
 using Avalonia;
 using Avalonia.Platform;
-using Dragonwilds.Core;
+using Wyrmwatch.Core;
 
 namespace Wyrmwatch.Desktop;
 

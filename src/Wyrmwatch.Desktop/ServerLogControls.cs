@@ -1,5 +1,5 @@
 using Avalonia.Interactivity;
-using Dragonwilds.Core;
+using Wyrmwatch.Core;
 
 namespace Wyrmwatch.Desktop;
 
