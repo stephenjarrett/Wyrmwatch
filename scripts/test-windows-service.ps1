@@ -47,17 +47,26 @@ function Endpoint {
 function Action([string]$name) {
     Invoke-RestMethod -Method Post -Uri ($script:endpoint.Address+'/api/servers/service/actions') -Headers $script:headers -ContentType 'application/json' -Body (@{action=$name} | ConvertTo-Json)
 }
+function Wait-Fixture {
+    $deadline=(Get-Date).AddSeconds(15)
+    do {
+        $state=Endpoint
+        if($state.servers[0].state.accessible -and $state.servers[0].state.running -and $state.servers[0].state.processes[0].id){return $state}
+        Start-Sleep -Milliseconds 500
+    } while((Get-Date) -lt $deadline)
+    throw ('Fixture did not appear in the observed service state: '+($state | ConvertTo-Json -Depth 8 -Compress))
+}
 try {
     Start-Service Wyrmwatch
     $null=Endpoint
     $null=Action 'start'
-    $state=Endpoint
+    $state=Wait-Fixture
     $identity=$state.servers[0].state.processes[0]
     if(-not $identity.id){throw 'Service failed to launch the fixture'}
     Stop-Service Wyrmwatch
     if(-not (Get-Process -Id $identity.id -ErrorAction SilentlyContinue)){throw 'Stopping the service stopped the fixture'}
     Start-Service Wyrmwatch
-    $state=Endpoint
+    $state=Wait-Fixture
     if($state.servers[0].state.processes[0].id -ne $identity.id){throw 'Restart lost fixture ownership'}
     $null=Action 'stop'
     if((Get-Content -LiteralPath (Join-Path $install 'shutdown.requested') -Raw) -ne 'graceful'){throw 'Service failed graceful fixture shutdown'}
