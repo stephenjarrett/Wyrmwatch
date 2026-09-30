@@ -31,7 +31,7 @@ Set update checks, an optional maintenance window, backup frequency, and retenti
 
 ### Light theme
 
-Choose dark, light, or the system theme in Settings.
+Choose dark, light, or the system theme in App settings.
 
 ![Wyrmwatch overview dashboard in the light theme](docs/images/overview-light.png)
 
@@ -59,12 +59,12 @@ Automatic game updates, scheduled backups, background operation, manager update 
 
 ## Use an existing server
 
-1. Choose **Import existing server** (or **Import another server…** in Settings). Paste its installation folder into the dialog or use **Choose server folder…**. You can also paste the full launcher path (`RSDragonwildsServer.exe` on Windows, the server launch script on Linux) directly into the text field. Click **Review folders**; the launcher is read, never executed.
+1. Choose **Import existing server** (or **Import another server…** in Server settings). Paste its installation folder into the dialog or use **Choose server folder…**. You can also paste the full launcher path (`RSDragonwildsServer.exe` on Windows, the server launch script on Linux) directly into the text field. Click **Review folders**; the launcher is read, never executed.
 2. Review the **save-data folder** and backup destination. The default is `RSDragonwilds/Saved` inside the installation. If this server uses your user-profile data, explicitly select that server's real Saved folder instead. Wyrmwatch reads the existing server name and port from that folder's configuration; it does not guess or combine unrelated player saves.
 3. Confirm the reviewed Saved folder and choose **Import server**, then create a manual backup. Importing only saves a connection: it does not move files, rewrite game configuration, install, launch, or stop a server. Automatic updates and backups are disabled on import, including reconnection.
 4. Enable schedules when ready. Run only one server-management application with automatic maintenance enabled for the installation.
 
-For a fresh world, choose **Create Server** on Overview or in Settings. The wizard suggests server/world names, UDP port 7777, separate install and backup folders, and a generated admin password. Paste your Dragonwilds Player ID from the bottom of the in-game Settings menu; optionally set a world password for your players. You can select a populated parent such as `C:\Games`: Wyrmwatch uses a new dedicated child folder and rejects an occupied destination. Review all paths and confirm **Create Server** to download and configure the server. It stays stopped until you press **Start**. Automatic updates and scheduled backups remain off until you enable them.
+For a fresh world, choose **Create Server** on Overview or in Server settings. The wizard suggests server/world names, UDP port 7777, separate install and backup folders, and a generated admin password. Paste your Dragonwilds Player ID from the bottom of the in-game Settings menu; optionally set a world password for your players. You can select a populated parent such as `C:\Games`: Wyrmwatch uses a new dedicated child folder and rejects an occupied destination. Review all paths and confirm **Create Server** to download and configure the server. It stays stopped until you press **Start**. Automatic updates and scheduled backups remain off until you enable them.
 
 A server started elsewhere can be monitored and backed up. Wyrmwatch will not send it shutdown signals without a recorded owned process identity. Stop it using its existing controls at a convenient time, then start it through Wyrmwatch for managed shutdown. No forced-stop fallback is enabled.
 
@@ -96,7 +96,7 @@ See [background operation and remote access](docs/background-and-remote.md) for 
 
 ## Maintenance and recovery limits
 
-Schedules need the computer awake and the background manager running. By default it exits with the desktop. Enable **Keep the background manager running** under Settings and save desktop preferences to continue after closing the window. A registered service or explicitly started standalone agent runs independently. Missed jobs run once after the manager returns. Closing the manager leaves the game running.
+Schedules need the computer awake and the background manager running. By default it exits with the desktop. Enable **Keep the background manager running** under App settings and save desktop preferences to continue after closing the window. A registered service or explicitly started standalone agent runs independently. Missed jobs run once after the manager returns. Closing the manager leaves the game running.
 
 Live backups contain files already written to disk; they cannot capture unsaved in-memory progress. Updates take a second backup after shutdown. Backups are stored outside the installation. Only Wyrmwatch-marked archives for the same profile and installation are pruned; recovery folders are never automatically deleted. Keep an additional backup on a separate drive.
 

@@ -166,7 +166,7 @@ public class SmokeTests
             foreach (var theme in new[] { ThemeVariant.Dark, ThemeVariant.Light, ThemeVariant.Dark })
             {
                 Application.Current.RequestedThemeVariant = theme;
-                nav.SelectedIndex = 5;
+                nav.SelectedIndex = (int)WorkspacePage.ServerSettings;
                 Avalonia.Threading.Dispatcher.UIThread.RunJobs();
                 var selected = Assert.IsType<ListBoxItem>(nav.SelectedItem);
                 var presenter = selected.GetVisualDescendants().OfType<ContentPresenter>().First();
@@ -224,20 +224,65 @@ public class SmokeTests
             Assert.IsType<WorkspaceModel>(window.DataContext);
             var nav = window.FindControl<ListBox>("Navigation")!;
             for (var i = 0; i < nav.ItemCount; i++) { nav.SelectedIndex = i; Assert.False(string.IsNullOrWhiteSpace(((WorkspaceModel)window.DataContext!).PageTitle)); }
-            nav.SelectedIndex = 5;
+            nav.SelectedIndex = (int)WorkspacePage.ServerSettings;
             var field = window.FindControl<TextBox>("ProfileName")!; field.Text = "Unsaved user input"; field.Focus();
             var model = (WorkspaceModel)window.DataContext!; model.Cpu = "12.3%"; model.Players = "3"; model.Status = "Online";
             Assert.Equal("Unsaved user input", field.Text);
+            window.ShowPage(WorkspacePage.AppSettings);
             var language = new Wyrmwatch.Core.LanguagePack("xx", "Test language", new() { [Localization.Key("Make yourself at home.")] = "Translated settings" });
             var languages = window.FindControl<ComboBox>("LanguagePicker")!; languages.ItemsSource = new[] { Localization.English, language }; languages.SelectedIndex = 1;
             Assert.Equal("Translated settings", model.PageTitle); Assert.Equal("Unsaved user input", field.Text);
             languages.SelectedIndex = 0;
             window.FindControl<ComboBox>("ThemePicker")!.SelectedIndex = 1;
             Assert.Equal(ThemeVariant.Light, Application.Current!.RequestedThemeVariant);
-            nav.SelectedIndex = 0; nav.SelectedIndex = 5; Assert.Equal("Unsaved user input", field.Text);
+            nav.SelectedIndex = 0; nav.SelectedIndex = (int)WorkspacePage.ServerSettings; Assert.Equal("Unsaved user input", field.Text);
         }
         finally { window.Close(); if (Directory.Exists(root)) Directory.Delete(root, true); }
     }
+    [AvaloniaFact]
+    public void LifecycleButtonsFollowVerifiedStateAndServerEditorIsSeparateFromAppSettings()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "wyrmwatch-ui-" + Guid.NewGuid().ToString("N"));
+        Program.HeadlessTest = true; Program.Demo = false; Program.DataDirectory = root;
+        var profile = new ServerProfile { InstallPath = Path.Combine(root, "server"), BackupPath = Path.Combine(root, "backups") };
+        new JsonStore(root).Write("settings.json", new ManagerSettings { Servers = [profile] });
+        var window = new MainWindow(); window.Show();
+        try
+        {
+            var model = (WorkspaceModel)window.DataContext!;
+            var start = window.FindControl<Button>("StartButton")!;
+            var stop = window.FindControl<Button>("StopButton")!;
+            var restart = window.FindControl<Button>("RestartButton")!;
+            var save = window.FindControl<Button>("SaveGameConfigurationButton")!;
+            foreach (var state in new bool?[] { null, false, true, null, false })
+            {
+                model.ServerRunning = state; Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+                Assert.Equal(state == false, start.IsEnabled);
+                Assert.Equal(state == true, stop.IsEnabled); Assert.Equal(state == true, restart.IsEnabled);
+                Assert.Equal(state == false, save.IsEnabled);
+            }
+            // Even direct routed events must not show a stop/restart confirmation for a stopped server.
+            stop.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+            restart.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+            Assert.Empty(window.OwnedWindows);
+            model.Busy = true; Assert.False(model.CanStart); Assert.False(model.CanStop); model.Busy = false;
+            window.FindControl<Button>("EditServerButton")!.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+            Assert.True(window.FindControl<StackPanel>("ServerSettingsPage")!.IsVisible);
+            Assert.False(window.FindControl<StackPanel>("SettingsPage")!.IsVisible);
+            var owner = window.FindControl<TextBox>("OwnerId")!; owner.Text = "unsaved owner";
+            Assert.Contains(window.FindControl<StackPanel>("ServerSettingsPage")!, owner.GetLogicalAncestors());
+            Assert.DoesNotContain(window.FindControl<StackPanel>("SettingsPage")!, owner.GetLogicalAncestors());
+            window.ShowPage(WorkspacePage.AppSettings); Assert.False(model.ShowServerPicker);
+            window.ShowPage(WorkspacePage.ServerSettings); Assert.True(model.ShowServerPicker); Assert.Equal("unsaved owner", owner.Text);
+            window.ShowPage(WorkspacePage.Automation);
+            var interval = window.FindControl<NumericUpDown>("UpdateInterval")!;
+            Assert.Equal(60, interval.Value); Assert.Equal(30, interval.Minimum);
+            model.SelectedProfile = profile with { Id = "another-server" };
+            Assert.Null(model.ServerRunning); Assert.False(model.CanStop); Assert.False(model.CanStart);
+        }
+        finally { window.Close(); Directory.Delete(root, true); }
+    }
+
     [AvaloniaFact]
     public void FirstRunHasNoConnectedServerOrEnabledActions()
     {

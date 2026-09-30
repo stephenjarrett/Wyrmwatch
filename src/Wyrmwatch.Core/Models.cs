@@ -10,7 +10,11 @@ public sealed record ServerProfile
     public string LauncherPath { get; init; } = "";
     public int Port { get; init; } = 7777;
     public bool AutoUpdate { get; init; }
-    public int UpdateMinutes { get; init; } = 60;
+    public const int MinimumUpdateMinutes = 30;
+    public const int DefaultUpdateMinutes = 60;
+    private int updateMinutes = DefaultUpdateMinutes;
+    // Older profiles allowed five-minute checks. Reading one applies the new floor in memory.
+    public int UpdateMinutes { get => updateMinutes; init => updateMinutes = value is >= 5 and < MinimumUpdateMinutes ? MinimumUpdateMinutes : value; }
     public bool AutoBackup { get; init; }
     public int BackupHours { get; init; } = 6;
     public int RetainBackups { get; init; } = 20;
@@ -37,7 +41,7 @@ public sealed record ServerProfile
         if (SafePaths.Within(BackupPath, SavedPath) || SafePaths.Same(BackupPath, SavedPath)) throw new ArgumentException("Store backups outside the save-data folder.");
         SafePaths.NoLinks(SavedPath);
         if (Port is < 1024 or > 65535) throw new ArgumentException("Choose a port between 1024 and 65535.");
-        if (UpdateMinutes is < 5 or > 10080 || BackupHours is < 1 or > 720 || RetainBackups is < 1 or > 1000) throw new ArgumentException("Check the schedule intervals and backup retention.");
+        if (UpdateMinutes is < MinimumUpdateMinutes or > 10080 || BackupHours is < 1 or > 720 || RetainBackups is < 1 or > 1000) throw new ArgumentException("Game update checks must be at least 30 minutes apart. Check the schedule intervals and backup retention.");
         if (UseMaintenanceWindow && WindowStart == WindowEnd) throw new ArgumentException("The maintenance window must have different start and end times.");
     }
 }

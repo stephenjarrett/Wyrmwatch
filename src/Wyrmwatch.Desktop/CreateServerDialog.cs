@@ -62,7 +62,7 @@ public sealed class CreateServerDialog : Window
                 Field("Backup parent folder", backupParent, "Backups use a matching child folder here. Scheduled backups start off."),
                 Browse(backupParent, "Choose the parent folder for backups"),
                 Field("Game port · UDP", port, "7777 is the default. Internet players need this UDP port allowed through your firewall and router."),
-                Field("Admin password · generated for you", admin, "Keep this private: it grants server administration. You can view or change it later in Settings."),
+                Field("Admin password · generated for you", admin, "Keep this private: it grants server administration. You can view or change it later in Server settings."),
                 regenerate,
                 Field("World password · optional", password, "Share this with players. Leave blank to allow anyone who can reach the server to join."), reveal),
             Page("Ready to create?", summary,
@@ -152,7 +152,7 @@ public sealed class CreateServerDialog : Window
             finished = true;
             stepLabel.Text = "SETUP COMPLETE";
             ((TextBlock)pages[2].Children[0]).Text = "Your server is ready";
-            summary.Text = $"{reviewed.Profile.Name} is ready and stopped.\n\n1. Close this window and press Start on Overview.\n2. In Dragonwilds, open Public Worlds and search for \"{reviewed.Configuration["DefaultWorldName"]}\".\n3. After your first session, create a backup from Backups. Enable schedules in Automation when ready.\n\nFor internet players, see Help & diagnostics for network setup. Your admin password is available in Settings.";
+            summary.Text = $"{reviewed.Profile.Name} is ready and stopped.\n\n1. Close this window and press Start on Overview.\n2. In Dragonwilds, open Public Worlds and search for \"{reviewed.Configuration["DefaultWorldName"]}\".\n3. After your first session, create a backup from Backups. Enable schedules in Automation when ready.\n\nFor internet players, see Help & diagnostics for network setup. Your admin password is available in Server settings.";
             message.Text = "Server downloaded and configured. No game process was started.";
         }
         catch (Exception error)
@@ -162,7 +162,7 @@ public sealed class CreateServerDialog : Window
             {
                 finished = true; stepLabel.Text = "SETUP NEEDS ATTENTION";
                 ((TextBlock)pages[2].Children[0]).Text = "Setup did not finish";
-                summary.Text = "Setup did not finish. Any downloaded files and saved connection have been kept.\n\nCheck Activity for details. If the download completed, finish the game settings in Settings. If it was interrupted, keep the partial folder and choose a new empty server folder when retrying.\n\nFolder: " + reviewed!.Profile.InstallPath;
+                summary.Text = "Setup did not finish. Any downloaded files and saved connection have been kept.\n\nCheck Activity for details. If the download completed, finish the game settings in Server settings. If it was interrupted, keep the partial folder and choose a new empty server folder when retrying.\n\nFolder: " + reviewed!.Profile.InstallPath;
             }
         }
         finally

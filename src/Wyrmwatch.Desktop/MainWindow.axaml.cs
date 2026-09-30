@@ -31,6 +31,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent(); DataContext = model;
+        if (Program.Demo) Title = "Wyrmwatch · Demo preview";
         MemoryChart.Color = Color.Parse("#88C8AD"); MemoryChart.Maximum = 1024;
         try
         {
@@ -61,14 +62,16 @@ public partial class MainWindow : Window
     private void Navigate(object? sender, SelectionChangedEventArgs e)
     {
         if (OverviewPage is null) return;
-        Control[] pages = [OverviewPage, ResourcesPage, AutomationPage, BackupsPage, ActivityPage, SettingsPage, HelpPage, RemotePage, UpdatesPage];
+        Control[] pages = [OverviewPage, ServerSettingsPage, ResourcesPage, AutomationPage, BackupsPage, ActivityPage, SettingsPage, HelpPage, RemotePage, UpdatesPage];
         var index = Navigation.SelectedIndex; if (index < 0 || index >= pages.Length) return;
         for (var i = 0; i < pages.Length; i++) pages[i].IsVisible = i == index;
-        string[] titles = ["Your server, at a glance.", "Room to breathe.", "Set it. Let it run.", "A way back, always.", "Every step, accounted for.", "Make yourself at home.", "A little guidance.", "Share the controls.", "Keep Wyrmwatch current."];
-        string[] descriptions = ["A quieter way to keep your world running.", "Live CPU, memory, and storage for your selected server.", "Thoughtful maintenance, around your players.", "Your saves and settings, backed up and verified.", "Updates, backups, and the details in between.", "Your appearance, connections, and game configuration.", "Setup help and a closer look under the hood.", "Access for the right people, with the right permissions.", "Verified downloads, with your previous version kept close."];
+        if (PageScroll is not null) PageScroll.Offset = default;
+        string[] titles = ["Your server, at a glance.", "Server settings", "Room to breathe.", "Set it. Let it run.", "A way back, always.", "Every step, accounted for.", "Make yourself at home.", "A little guidance.", "Share the controls.", "Keep Wyrmwatch current."];
+        string[] descriptions = ["A quieter way to keep your world running.", "Folders, access and game configuration for the selected server.", "Live CPU, memory, and storage for your selected server.", "Game updates and backups for the selected server.", "Your saves and settings, backed up and verified.", "Updates, backups, and the details in between.", "Appearance and desktop preferences shared across your servers.", "Setup help and a closer look under the hood.", "Access for the right people, with the right permissions.", "Verified downloads, with your previous version kept close."];
         model.PageTitle = Localization.Text(titles[index]); model.PageSubtitle = Localization.Text(descriptions[index]);
-        if (index == 7 && ready && !Program.Demo && !Program.HeadlessTest) _ = LoadRemoteAsync();
-        if (index != 7 && IssuedSecret is not null) IssuedSecret.Text = "";
+        model.ShowServerPicker = (WorkspacePage)index is not (WorkspacePage.AppSettings or WorkspacePage.Help or WorkspacePage.AppUpdates);
+        if (index == (int)WorkspacePage.Remote && ready && !Program.Demo && !Program.HeadlessTest) _ = LoadRemoteAsync();
+        if (index != (int)WorkspacePage.Remote && IssuedSecret is not null) IssuedSecret.Text = "";
     }
     private async void ServerSelected(object? sender, SelectionChangedEventArgs e)
     {
@@ -78,6 +81,7 @@ public partial class MainWindow : Window
     }
     private void LoadProfile()
     {
+        model.ServerRunning = null;
         latestServerLog = ""; ServerLogText.Text = "";
         var p = model.SelectedProfile;
         if (p is null)
@@ -106,6 +110,7 @@ public partial class MainWindow : Window
         do
         {
             if (agentTransition) continue;
+            var observedId = model.SelectedProfile?.Id;
             try
             {
                 var p = model.SelectedProfile;
@@ -113,14 +118,14 @@ public partial class MainWindow : Window
                 {
                     if (Program.Demo)
                     {
-                        model.Status = "Demo · online"; model.Players = "2"; model.Cpu = "8.4%"; model.Memory = "3.2 GB"; model.Uptime = "4h 12m"; model.DiskFree = "142.8 GB"; model.Notice = "Demo workspace · illustrative data · server actions are disabled";
+                        model.ServerRunning = true; model.Status = "Demo · online"; model.Players = "2"; model.Cpu = "8.4%"; model.Memory = "3.2 GB"; model.Uptime = "4h 12m"; model.DiskFree = "142.8 GB"; model.Notice = "Demo workspace · illustrative data · server actions are disabled";
                         if (CpuChart is not null) { CpuChart.Add(8 + Random.Shared.NextDouble() * 2); MemoryChart.Add(3200 + Random.Shared.NextDouble() * 100); }
                     }
                     else
                     {
                         var state = await service!.ObserveAsync(p, closing.Token);
                         if (p.Id != model.SelectedProfile?.Id) continue;
-                        model.Status = !state.Accessible ? "Needs attention" : state.Running ? "Online" : "Stopped";
+                        ApplyServerState(state);
                         model.Players = state.Players?.ToString() ?? "?"; model.Cpu = state.Running ? $"{state.CpuPercent:0.0}%" : "—"; model.Memory = state.Running ? $"{state.MemoryBytes / 1073741824d:0.0} GB" : "—";
                         model.Uptime = !state.Running ? "—" : state.Uptime.TotalDays >= 2 ? $"{(int)state.Uptime.TotalDays}d {state.Uptime.Hours}h" : $"{(int)state.Uptime.TotalHours}h {state.Uptime.Minutes:00}m";
                         CpuChart!.Add(state.CpuPercent); MemoryChart.Add(state.MemoryBytes / 1048576d);
@@ -130,14 +135,14 @@ public partial class MainWindow : Window
                 if (!Program.Demo)
                 {
                     if (p is null) await service!.RefreshAsync(closing.Token);
-                    if (Navigation.SelectedIndex == 4 && LiveServerLog.IsChecked == true) await RefreshServerLogAsync();
+                    if (Navigation.SelectedIndex == (int)WorkspacePage.Activity && LiveServerLog.IsChecked == true) await RefreshServerLogAsync();
                     UpdateScheduleLabels();
                     AgentStatusText.Text = service!.Background ? "Background manager active · schedules continue when the window closes" : "Background manager connected · closes with this app";
                     if (settings.CheckAppUpdates && DateTimeOffset.UtcNow >= nextAppCheck) _ = CheckManagerUpdateAsync();
                 }
             }
             catch (OperationCanceledException) { break; }
-            catch (Exception e) { model.Notice = e.Message; }
+            catch (Exception e) { if (observedId == model.SelectedProfile?.Id) { model.ServerRunning = null; model.Status = "Unavailable"; } model.Notice = e.Message; }
         } while (!closing.IsCancellationRequested && await timer.WaitForNextTickAsync(closing.Token));
     }
     private static string DiskSpace(string path) { try { return $"{new DriveInfo(Path.GetPathRoot(path)!).AvailableFreeSpace / 1073741824d:0.0} GB"; } catch { return "Unavailable"; } }
@@ -177,8 +182,13 @@ public partial class MainWindow : Window
     {
         if (Program.Demo || model.SelectedProfile is null || service!.Busy) return;
         var profile = model.SelectedProfile;
-        try { model.Busy = true; model.Notice = "Working…"; model.Notice = await Task.Run(() => action(profile)); }
-        catch (Exception e) { model.Notice = e.Message; }
+        try
+        {
+            model.Busy = true; model.Notice = "Working…"; model.Notice = await Task.Run(() => action(profile));
+            var state = await service.ObserveAsync(profile, closing.Token);
+            if (model.SelectedProfile?.Id == profile.Id) ApplyServerState(state);
+        }
+        catch (Exception e) { if (model.SelectedProfile?.Id == profile.Id) model.ServerRunning = null; model.Notice = e.Message; }
         finally { model.Busy = false; await RefreshBackupsAsync(); RefreshHistory(); }
     }
     private async Task SaveSettingsAsync() { if (!Program.Demo && !Program.HeadlessTest) await service!.SavePreferencesAsync(settings); }
@@ -199,7 +209,7 @@ public partial class MainWindow : Window
         {
             var p = await new ImportServerDialog("", model.Profiles.ToArray()).ShowDialog<ServerProfile?>(this);
             if (p is null) return;
-            p = await service!.ImportProfileAsync(p); model.Profiles.Add(p); model.SelectedProfile = p; settings = settings with { SelectedServerId = p.Id }; LoadProfile(); Navigation.SelectedIndex = 5;
+            p = await service!.ImportProfileAsync(p); model.Profiles.Add(p); model.SelectedProfile = p; settings = settings with { SelectedServerId = p.Id }; LoadProfile(); ShowPage(WorkspacePage.ServerSettings);
             model.Notice = "Imported without changing game files. Automation is off. Create your first backup when ready.";
         }
         catch (Exception error) { await ShowSetupErrorAsync("Could not import server", error.Message); }
@@ -231,13 +241,13 @@ public partial class MainWindow : Window
             OwnerId.Text = plan.Configuration["OwnerId"]; GameServerName.Text = plan.Configuration["ServerName"];
             WorldName.Text = plan.Configuration["DefaultWorldName"]; AdminPassword.Text = plan.Configuration["AdminPassword"];
             WorldPassword.Text = plan.Configuration["WorldPassword"]; GamePort.Value = p.Port;
-            Navigation.SelectedIndex = 4;
+            ShowPage(WorkspacePage.Activity);
             report("Downloading the dedicated server… This may take several minutes. Download output is recorded in Activity.");
             model.Notice = "Creating server · downloading game files…";
             await service.InstallAsync(p);
             report("Download complete. Saving your owner, world and access settings…");
             await service.SaveConfigurationAsync(p, plan.Configuration);
-            LoadProfile(); Navigation.SelectedIndex = 0;
+            LoadProfile(); ShowPage(WorkspacePage.Overview);
             model.Notice = "Server created and configured. Press Start when ready. Automation is off.";
         }
         catch (Exception error) { model.Notice = "Server setup incomplete: " + error.Message; throw; }
@@ -273,6 +283,7 @@ public partial class MainWindow : Window
     }
     private async void WriteConfiguration(object? sender, RoutedEventArgs e)
     {
+        if (!model.CanConfigure) { model.Notice = model.ConfigurationHint; return; }
         var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["OwnerId"] = OwnerId.Text ?? "", ["ServerName"] = GameServerName.Text ?? "", ["DefaultWorldName"] = WorldName.Text ?? "", ["AdminPassword"] = AdminPassword.Text ?? "", ["WorldPassword"] = WorldPassword.Text ?? "", ["Port"] = ((int)(GamePort.Value ?? 7777)).ToString() };
         if (!await Confirm("Write game configuration?", "The server must be stopped. Existing settings will be backed up before these changes are written.", "Write configuration")) return;
         await Run(async p =>
@@ -282,13 +293,21 @@ public partial class MainWindow : Window
             return result;
         });
     }
-    private async void StartServer(object? sender, RoutedEventArgs e) => await Run(p => service!.StartAsync(p));
-    private async void StopServer(object? sender, RoutedEventArgs e) { if (await Confirm("Stop this server?", "Connected players will be disconnected. Wyrmwatch will back up first and request a graceful shutdown.", "Stop server")) await Run(p => service!.StopAsync(p)); }
-    private async void RestartServer(object? sender, RoutedEventArgs e) { if (await Confirm("Restart this server?", "Connected players will be disconnected. A backup is required before restarting.", "Restart server")) await Run(p => service!.StopAsync(p, true)); }
+    private async void StartServer(object? sender, RoutedEventArgs e) { if (model.CanStart) await Run(p => service!.StartAsync(p)); }
+    private async void StopServer(object? sender, RoutedEventArgs e) { if (model.CanStop && await Confirm("Stop this server?", "Connected players will be disconnected. Wyrmwatch will back up first and request a graceful shutdown.", "Stop server")) await Run(p => service!.StopAsync(p)); }
+    private async void RestartServer(object? sender, RoutedEventArgs e) { if (model.CanStop && await Confirm("Restart this server?", "Connected players will be disconnected. A backup is required before restarting.", "Restart server")) await Run(p => service!.StopAsync(p, true)); }
     private async void CreateBackup(object? sender, RoutedEventArgs e) => await Run(p => service!.BackupAsync(p));
     private async void CheckUpdates(object? sender, RoutedEventArgs e) { await Run(async p => { var result = await service!.CheckAsync(p); Dispatcher.UIThread.Post(() => model.BuildSummary = result); return result; }); }
     private async void ApplyUpdate(object? sender, RoutedEventArgs e) => await Run(p => service!.UpdateAsync(p));
-    private void GoBackups(object? sender, RoutedEventArgs e) => Navigation.SelectedIndex = 3;
+    internal void ShowPage(WorkspacePage page) => Navigation.SelectedIndex = (int)page;
+    private void GoBackups(object? sender, RoutedEventArgs e) => ShowPage(WorkspacePage.Backups);
+    private void GoServerSettings(object? sender, RoutedEventArgs e) => ShowPage(WorkspacePage.ServerSettings);
+    private void GoAutomation(object? sender, RoutedEventArgs e) => ShowPage(WorkspacePage.Automation);
+    private void ApplyServerState(ServerSnapshot state)
+    {
+        model.ServerRunning = state.Accessible ? state.Running : null;
+        model.Status = !state.Accessible ? "Needs attention" : state.Running ? "Online" : "Stopped";
+    }
     private async void VerifyBackup(object? sender, RoutedEventArgs e)
     {
         if (BackupList.SelectedItem is not BackupRow row || model.SelectedProfile is not { } p) { model.Notice = "Select a backup first."; return; }
