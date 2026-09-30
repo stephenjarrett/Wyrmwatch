@@ -55,56 +55,103 @@ public class SmokeTests
     }
 
     [AvaloniaFact]
-    public async Task InstallingIntoAnOccupiedFolderShowsAnErrorAndPreservesFiles()
+    public async Task CreateWizardRequiresOwnerAndCancelAfterReviewChangesNothing()
     {
         var root = Path.Combine(Path.GetTempPath(), "wyrmwatch-ui-" + Guid.NewGuid().ToString("N"));
-        var install = Path.Combine(root, "games"); Directory.CreateDirectory(install);
-        var existing = Path.Combine(install, "existing-world.sav"); File.WriteAllText(existing, "keep this world");
-        Program.HeadlessTest = true; Program.Demo = false; Program.DataDirectory = Path.Combine(root, "workspace");
-        var window = new MainWindow(); window.Show();
+        var calls = 0;
+        var dialog = new CreateServerDialog([], (_, _) => { calls++; return Task.CompletedTask; }, root); dialog.Show();
         try
         {
-            var operation = window.InstallNewServerAsync(install);
-            var dialog = await WaitForSetupDialog(window);
-            Assert.Equal("Could not install server", dialog.Title);
-            var message = string.Join("\n", dialog.GetLogicalDescendants().OfType<TextBlock>().Select(t => t.Text));
-            Assert.Contains(install, message); Assert.Contains("new empty subfolder", message);
-            Assert.Contains("Import existing server", message);
-            dialog.Close(); await operation;
-            Assert.Empty(((WorkspaceModel)window.DataContext!).Profiles);
-            Assert.Equal("keep this world", File.ReadAllText(existing));
-            Assert.Single(Directory.EnumerateFileSystemEntries(install));
+            Assert.Equal(7777, Field<NumericUpDown>(dialog, "CreatePort").Value);
+            Assert.Equal('●', Field<TextBox>(dialog, "CreateAdminPassword").PasswordChar);
+            Assert.True(Field<TextBox>(dialog, "CreateAdminPassword").Text!.Length >= 20);
+            await dialog.AdvanceAsync();
+            Assert.Contains("Player ID", Field<TextBlock>(dialog, "CreateMessage").Text);
+            Field<TextBox>(dialog, "CreateOwnerId").Text = "owner-fixture";
+            Field<TextBox>(dialog, "CreateServerName").Text = "Carter's New World";
+            await dialog.AdvanceAsync();
+            Assert.Equal("carter-s-new-world", Field<TextBox>(dialog, "CreateFolderName").Text);
+            await dialog.AdvanceAsync();
+            var review = Field<TextBlock>(dialog, "CreateReview").Text!;
+            Assert.Contains(Path.Combine(root, "WyrmwatchServers", "carter-s-new-world"), review);
+            Assert.Contains("automatic updates off", review);
+            Assert.DoesNotContain(Field<TextBox>(dialog, "CreateAdminPassword").Text!, review);
+            dialog.Close();
+            Assert.Equal(0, calls); Assert.False(Directory.Exists(root));
         }
-        finally { foreach (var dialog in window.OwnedWindows.ToArray()) dialog.Close(); window.Close(); if (SafePaths.Within(root, Path.GetTempPath())) Directory.Delete(root, true); }
+        finally { dialog.Close(); if (Directory.Exists(root)) Directory.Delete(root, true); }
     }
 
     [AvaloniaFact]
-    public async Task NewInstallationShowsItsDestinationAndCancellationChangesNothing()
+    public async Task CreateWizardUsesAChildOfPopulatedParentAndSubmitsOnlyAfterConfirmation()
     {
         var root = Path.Combine(Path.GetTempPath(), "wyrmwatch-ui-" + Guid.NewGuid().ToString("N"));
-        var install = Path.Combine(root, "new-server"); Directory.CreateDirectory(install);
-        Program.HeadlessTest = true; Program.Demo = false; Program.DataDirectory = Path.Combine(root, "workspace");
-        var window = new MainWindow(); window.Show();
+        var parent = Path.Combine(root, "games"); Directory.CreateDirectory(parent);
+        var existing = Path.Combine(parent, "existing.sav"); File.WriteAllText(existing, "preserved");
+        ServerCreationPlan? submitted = null;
+        var dialog = new CreateServerDialog([], (plan, report) => { submitted = plan; report("Fixture download complete"); return Task.CompletedTask; }, root); dialog.Show();
         try
         {
-            var operation = window.InstallNewServerAsync(install);
-            var dialog = await WaitForSetupDialog(window);
-            Assert.Equal("Install a new server?", dialog.Title);
-            Assert.Contains(install, string.Join("\n", dialog.GetLogicalDescendants().OfType<TextBlock>().Select(t => t.Text)));
-            dialog.Close(false); await operation;
-            Assert.Empty(((WorkspaceModel)window.DataContext!).Profiles);
-            Assert.Empty(Directory.EnumerateFileSystemEntries(install));
-            Assert.False(File.Exists(Path.Combine(Program.DataDirectory, "settings.json")));
+            Field<TextBox>(dialog, "CreateOwnerId").Text = "owner-fixture";
+            await dialog.AdvanceAsync();
+            Field<TextBox>(dialog, "CreateParentFolder").Text = parent;
+            await dialog.AdvanceAsync(); Assert.Null(submitted);
+            Assert.Single(Directory.EnumerateFileSystemEntries(parent));
+            Assert.Equal("Create Server", Field<Button>(dialog, "CreateNext").Content);
+            await dialog.AdvanceAsync(); Assert.NotNull(submitted);
+            Assert.Equal(Path.Combine(parent, "my-dragonwilds-server"), submitted.Profile.InstallPath);
+            Assert.Equal("owner-fixture", submitted.Configuration["OwnerId"]);
+            Assert.False(submitted.Profile.AutoUpdate); Assert.False(submitted.Profile.AutoBackup);
+            Assert.Contains("ready and stopped", Field<TextBlock>(dialog, "CreateReview").Text);
+            Assert.Equal("preserved", File.ReadAllText(existing));
         }
-        finally { foreach (var dialog in window.OwnedWindows.ToArray()) dialog.Close(); window.Close(); if (SafePaths.Within(root, Path.GetTempPath())) Directory.Delete(root, true); }
+        finally { dialog.Close(); Directory.Delete(root, true); }
     }
 
-    private static async Task<Window> WaitForSetupDialog(Window owner)
+    [AvaloniaTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CreateWizardRejectsOccupiedTargetAtReviewAndAgainAtConfirmation(bool populateAfterReview)
     {
-        var deadline = DateTime.UtcNow.AddSeconds(5);
-        while (!owner.OwnedWindows.Any() && DateTime.UtcNow < deadline) await Task.Delay(10);
-        return Assert.Single(owner.OwnedWindows);
+        var root = Path.Combine(Path.GetTempPath(), "wyrmwatch-ui-" + Guid.NewGuid().ToString("N"));
+        var target = Path.Combine(root, "WyrmwatchServers", "my-dragonwilds-server");
+        var calls = 0;
+        var dialog = new CreateServerDialog([], (_, _) => { calls++; return Task.CompletedTask; }, root); dialog.Show();
+        try
+        {
+            Field<TextBox>(dialog, "CreateOwnerId").Text = "owner-fixture";
+            await dialog.AdvanceAsync();
+            if (populateAfterReview) await dialog.AdvanceAsync();
+            Directory.CreateDirectory(target); var world = Path.Combine(target, "existing.sav"); File.WriteAllText(world, "keep world");
+            await dialog.AdvanceAsync();
+            Assert.Equal(0, calls);
+            Assert.Contains("already contains files", Field<TextBlock>(dialog, "CreateMessage").Text);
+            Assert.Contains("Import existing server", Field<TextBlock>(dialog, "CreateMessage").Text);
+            Assert.Equal("keep world", File.ReadAllText(world)); Assert.Single(Directory.EnumerateFiles(target));
+            Assert.False(Directory.Exists(Path.Combine(root, "WyrmwatchBackups")));
+        }
+        finally { dialog.Close(); Directory.Delete(root, true); }
     }
+
+    [AvaloniaFact]
+    public async Task CreateWizardReportsFailureWithoutRepeatingInstallation()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "wyrmwatch-ui-" + Guid.NewGuid().ToString("N"));
+        var calls = 0;
+        var dialog = new CreateServerDialog([], (_, _) => { calls++; throw new IOException("Download failed"); }, root); dialog.Show();
+        try
+        {
+            Field<TextBox>(dialog, "CreateOwnerId").Text = "owner-fixture";
+            await dialog.AdvanceAsync(); await dialog.AdvanceAsync(); await dialog.AdvanceAsync();
+            Assert.Contains("Download failed", Field<TextBlock>(dialog, "CreateMessage").Text);
+            Assert.Contains("Setup did not finish", Field<TextBlock>(dialog, "CreateReview").Text);
+            Assert.Equal("Close", Field<Button>(dialog, "CreateNext").Content);
+            await dialog.AdvanceAsync(); Assert.Equal(1, calls); Assert.False(Directory.Exists(root));
+        }
+        finally { dialog.Close(); if (Directory.Exists(root)) Directory.Delete(root, true); }
+    }
+
+    private static T Field<T>(Window dialog, string name) where T : Control => dialog.GetLogicalDescendants().OfType<T>().Single(c => c.Name == name);
 
     [AvaloniaFact]
     public void SelectedNavigationRemainsReadableAcrossThemeChanges()

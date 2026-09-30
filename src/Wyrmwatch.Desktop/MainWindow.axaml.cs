@@ -206,36 +206,42 @@ public partial class MainWindow : Window
     }
     private async void NewServer(object? sender, RoutedEventArgs e)
     {
-        if (Program.Demo) { model.Notice = "Server installation is disabled in demo mode."; return; }
+        if (Program.Demo) { model.Notice = "Exit demo mode to create a real server."; return; }
         try
         {
-            var folder = await Folder("Choose an empty folder for the new server"); if (folder is null) return;
-            await InstallNewServerAsync(folder);
+            await new CreateServerDialog(model.Profiles.ToArray(), CreateServerAsync).ShowDialog(this);
         }
-        catch (Exception error) { await ShowSetupErrorAsync("Could not install server", error.Message); }
+        catch (Exception error) { await ShowSetupErrorAsync("Could not create server", error.Message); }
     }
-    internal async Task InstallNewServerAsync(string folder)
+    private async Task CreateServerAsync(ServerCreationPlan plan, Action<string> report)
     {
+        var connections = model.Profiles.ToArray();
+        await Task.Run(() => plan.Validate(connections));
+        if (service!.Busy) throw new IOException("Another server operation is still running. Wait for it to finish, then try again.");
+        model.Busy = true;
         try
         {
-            var connections = model.Profiles.ToArray();
-            var p = await Task.Run(() =>
-            {
-                var profile = new ServerProfile { Name = "New Dragonwilds server", InstallPath = folder, BackupPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "WyrmwatchBackups") };
-                ServerConnections.Validate(profile, connections);
-                if (!Directory.Exists(folder)) throw new IOException("Choose an existing empty folder for the new server.");
-                if (Directory.EnumerateFileSystemEntries(folder).Any())
-                    throw new IOException("This folder already contains files:\n" + folder + "\n\nCreate and select a new empty subfolder for this server. To use a server already installed here, choose Import existing server instead.\n\nNo files were changed.");
-                return profile;
-            });
-            if (service!.Busy) throw new IOException("Another server operation is still running. Wait for it to finish, then try again.");
-            if (!await Confirm("Install a new server?", "SteamCMD will download the dedicated server into:\n" + folder + "\n\nThe server will remain stopped until you configure and start it.", "Install server")) return;
-            p = await service!.SaveProfileAsync(p); model.Profiles.Add(p); model.SelectedProfile = p; LoadProfile();
-            model.Busy = true; model.Notice = "Installing server… Follow the download in Activity."; Navigation.SelectedIndex = 4;
-            try { model.Notice = await service.InstallAsync(p); Navigation.SelectedIndex = 5; }
-            finally { model.Busy = false; await RefreshBackupsAsync(); RefreshHistory(); }
+            report("Saving your server connection…");
+            var p = await service.SaveProfileAsync(plan.Profile);
+            changingProfile = true;
+            try { model.Profiles.Add(p); model.SelectedProfile = p; }
+            finally { changingProfile = false; }
+            settings = settings with { SelectedServerId = p.Id }; await SaveSettingsAsync(); LoadProfile();
+            // Keep the requested settings available if a download fails before configuration is written.
+            OwnerId.Text = plan.Configuration["OwnerId"]; GameServerName.Text = plan.Configuration["ServerName"];
+            WorldName.Text = plan.Configuration["DefaultWorldName"]; AdminPassword.Text = plan.Configuration["AdminPassword"];
+            WorldPassword.Text = plan.Configuration["WorldPassword"]; GamePort.Value = p.Port;
+            Navigation.SelectedIndex = 4;
+            report("Downloading the dedicated server… This may take several minutes. Download output is recorded in Activity.");
+            model.Notice = "Creating server · downloading game files…";
+            await service.InstallAsync(p);
+            report("Download complete. Saving your owner, world and access settings…");
+            await service.SaveConfigurationAsync(p, plan.Configuration);
+            LoadProfile(); Navigation.SelectedIndex = 0;
+            model.Notice = "Server created and configured. Press Start when ready. Automation is off.";
         }
-        catch (Exception error) { await ShowSetupErrorAsync("Could not install server", error.Message); }
+        catch (Exception error) { model.Notice = "Server setup incomplete: " + error.Message; throw; }
+        finally { model.Busy = false; await RefreshBackupsAsync(); RefreshHistory(); }
     }
     private async Task ShowSetupErrorAsync(string title, string message)
     {

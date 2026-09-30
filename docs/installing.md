@@ -34,7 +34,14 @@ An X11/XWayland desktop and Avalonia's system libraries are required. Linux mana
 
 Choose **Import existing server**, then select its installation folder or paste a launcher path directly into the dialog. Review the detected Saved directory (or select the server's actual Saved directory), and confirm the connection. Reviewing never executes the launcher. Importing preserves the installation and game files. Create a backup before enabling maintenance. Automatic maintenance, background services, and remote access remain off until you configure them.
 
-For **Install new server**, create and select an empty folder dedicated to that server, rather than a populated parent such as `C:\Games`. Confirm the destination to begin the download; progress appears in Activity. Existing files are never overwritten by a new installation.
+For a fresh world, choose **Create Server** on Overview or in Settings:
+
+1. Review the suggested server/world names and paste your **Dragonwilds Player ID** from the bottom of the game's Settings menu (use its Copy button).
+2. Choose an install parent and a new server folder name. A populated parent such as `C:\Games` is supported; its existing contents remain untouched. Review the separate backup location, default UDP port 7777, generated admin password, and optional world password. Blank world passwords allow anyone who can reach the server to join.
+3. Review the full installation, save-data and backup paths, then confirm **Create Server**. The wizard downloads the dedicated server and writes the required settings. Details are recorded in Activity.
+4. When setup completes, press **Start** on Overview to create the world. Find it by its exact name in the game's Public Worlds tab. Use Help & diagnostics for firewall/router guidance, and create your first backup after playing.
+
+Cancelling before creation changes no files. Creation never starts a server or enables automation. If setup fails, downloaded files and any saved connection are retained; the dialog explains how to finish configuration or retry in a different empty folder.
 
 ## Upgrade and uninstall
 

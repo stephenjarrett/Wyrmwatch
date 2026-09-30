@@ -41,7 +41,7 @@ Choose dark, light, or the system theme in Settings.
 
 - Modern dashboard, CPU/memory graphs, free disk space, dark/light/system themes.
 - Import existing installations in place with a save-folder review; choose from saved server connections and run one at a time.
-- Install new servers into empty folders with SteamCMD.
+- Create servers with a guided setup: suggested folders, owner ID help, generated admin password, and a review before the SteamCMD download.
 - Start, graceful stop, restart, and per-installation process tracking.
 - Compare installed and available Steam builds before updating.
 - Automatic updates wait for a continuously observed empty server for 60 seconds. Unknown player activity defers maintenance. Optional daily maintenance window.
@@ -64,7 +64,7 @@ Automatic game updates, scheduled backups, background operation, manager update 
 3. Confirm the reviewed Saved folder and choose **Import server**, then create a manual backup. Importing only saves a connection: it does not move files, rewrite game configuration, install, launch, or stop a server. Automatic updates and backups are disabled on import, including reconnection.
 4. Enable schedules when ready. Run only one server-management application with automatic maintenance enabled for the installation.
 
-For a fresh installation, choose **Install new server** and select an empty folder dedicated to that server, such as `C:\Games\Dragonwilds-NewServer`. A populated parent folder such as `C:\Games` is rejected without changing its contents. Review the destination and confirm **Install server**; the Activity page shows the download output.
+For a fresh world, choose **Create Server** on Overview or in Settings. The wizard suggests server/world names, UDP port 7777, separate install and backup folders, and a generated admin password. Paste your Dragonwilds Player ID from the bottom of the in-game Settings menu; optionally set a world password for your players. You can select a populated parent such as `C:\Games`: Wyrmwatch uses a new dedicated child folder and rejects an occupied destination. Review all paths and confirm **Create Server** to download and configure the server. It stays stopped until you press **Start**. Automatic updates and scheduled backups remain off until you enable them.
 
 A server started elsewhere can be monitored and backed up. Wyrmwatch will not send it shutdown signals without a recorded owned process identity. Stop it using its existing controls at a convenient time, then start it through Wyrmwatch for managed shutdown. No forced-stop fallback is enabled.
 
