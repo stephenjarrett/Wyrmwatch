@@ -12,6 +12,7 @@ public sealed class LinuxRuntime(JsonStore store) : IServerRuntime
     private readonly Dictionary<string, (DateTime Time, double Cpu)> previous = [];
     private sealed record OwnedSession(int Id, string BootId, DateTime StartedUtc);
     private readonly Dictionary<string, OwnedSession> sessions = store.Read("owned-sessions.json", () => new Dictionary<string, OwnedSession>());
+    internal Action<Process>? BeforeProcessInspection { get; set; }
     public async Task<ServerSnapshot> InspectAsync(ServerProfile p, CancellationToken token = default)
     {
         await gate.WaitAsync(token);
@@ -28,17 +29,19 @@ public sealed class LinuxRuntime(JsonStore store) : IServerRuntime
                 try
                 {
                     if (!process.ProcessName.StartsWith("RSDragonwilds", StringComparison.Ordinal)) continue;
+                    BeforeProcessInspection?.Invoke(process);
                     // An exited orphan may remain as a zombie until its container/init reaps it.
                     // Its missing executable is not a permission failure or a running server.
                     if (ProcFields(process.Id)[0] is "Z" or "X") continue;
-                    var path = process.MainModule?.FileName;
-                    if (path is null) { accessible = false; continue; }
+                    // MainModule's maps snapshot can briefly be empty during exec.
+                    var path = ExecutablePath(process);
+                    if (path is null) { if (!ConfirmedExit(process)) accessible = false; continue; }
                     if (!SafePaths.Within(path, p.InstallPath)) continue;
                     found.Add(new(process.Id, process.StartTime.ToUniversalTime(), path, ProcessLifetime.Token(process))); memory += process.WorkingSet64; cpu += process.TotalProcessorTime.TotalMilliseconds;
                 }
-                catch (System.ComponentModel.Win32Exception) { accessible = false; }
+                catch (System.ComponentModel.Win32Exception) { if (!ConfirmedExit(process)) accessible = false; }
                 catch (InvalidOperationException) { }
-                catch (IOException) { accessible = false; }
+                catch (IOException) { if (!ConfirmedExit(process)) accessible = false; }
             }
         }
         if (found.Count == 0) return ServerSnapshot.Offline with { Accessible = accessible, Players = accessible ? 0 : null };
@@ -68,6 +71,41 @@ public sealed class LinuxRuntime(JsonStore store) : IServerRuntime
         if (previous.Count > 100) previous.Clear();
         var started = found.Min(i => i.StartUtc); var players = PlayerActivity.Read(p.LogPath, started);
         return new(true, accessible, players.Count, players.Reason, percent, memory, now - started, found);
+    }
+    private static bool ConfirmedExit(Process process)
+    {
+        // Process enumeration is a snapshot. A different server may exit before
+        // its /proc or executable is read. Ignore only a positively confirmed exit;
+        // unreadable live/unknown processes must still make inspection fail closed.
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
+                // Signal 0 does not signal it: ESRCH positively proves absence;
+                // EPERM or any other error must remain unknown.
+                if (kill(process.Id, 0) != 0) return Marshal.GetLastPInvokeError() == 3; // ESRCH
+                if (ProcFields(process.Id)[0] is "Z" or "X") return true;
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException or InvalidOperationException)
+            {
+                try { if (kill(process.Id, 0) != 0) return Marshal.GetLastPInvokeError() == 3; }
+                catch (InvalidOperationException) { return false; }
+            }
+            // Exit can clear the executable just before its final kernel state.
+            // Bound this confirmation to two 2ms waits; still-live unknown state
+            // remains inaccessible, never optimistically stopped.
+            if (attempt == 2) return false;
+            Thread.Sleep(2);
+        }
+    }
+    private static string? ExecutablePath(Process process)
+    {
+        for (var attempt = 0; ; attempt++)
+        {
+            var path = process.MainModule?.FileName;
+            if (path is not null || attempt == 2) return path;
+            Thread.Sleep(2); process.Refresh();
+        }
     }
     private static bool IsSame(ProcessIdentity identity)
     {
