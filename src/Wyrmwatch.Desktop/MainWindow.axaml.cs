@@ -68,9 +68,8 @@ public partial class MainWindow : Window
         var index = Navigation.SelectedIndex; if (index < 0 || index >= pages.Length) return;
         for (var i = 0; i < pages.Length; i++) pages[i].IsVisible = i == index;
         if (PageScroll is not null) PageScroll.Offset = default;
-        string[] titles = ["Servers", "Server settings", "Room to breathe.", "Set it. Let it run.", "A way back, always.", "Every step, accounted for.", "Make yourself at home.", "A little guidance.", "Keep Wyrmwatch current."];
-        string[] descriptions = ["Choose a server to manage, or add a new world.", "Folders, access and game configuration for the selected server.", "Live CPU, memory, and storage for your selected server.", "Game updates and backups for the selected server.", "Your saves and settings, backed up and verified.", "Updates, backups, and the details in between.", "Appearance and desktop preferences shared across your servers.", "Setup help and a closer look under the hood.", "Verified downloads, with your previous version kept close."];
-        model.PageTitle = Localization.Text(titles[index]); model.PageSubtitle = Localization.Text(descriptions[index]);
+        string[] titles = ["Servers", "Server settings", "Resources", "Automation", "Backups", "Activity", "App settings", "Help & diagnostics", "App updates"];
+        model.PageTitle = Localization.Text(titles[index]);
         model.ShowServerPicker = (WorkspacePage)index is not (WorkspacePage.Servers or WorkspacePage.AppSettings or WorkspacePage.Help or WorkspacePage.AppUpdates);
     }
     private async void ServerSelected(object? sender, SelectionChangedEventArgs e)
@@ -175,7 +174,7 @@ public partial class MainWindow : Window
     private void UpdateScheduleLabels()
     {
         var p = model.SelectedProfile; if (p is null) return; var schedule = service?.Schedule(p.Id);
-        model.AutomationSummary = p.AutoUpdate || p.AutoBackup ? $"Automatic updates {(p.AutoUpdate ? "on" : "off")} · Scheduled backups {(p.AutoBackup ? "on" : "off")}" : "Automation is off · you're in control";
+        model.AutomationSummary = $"Automatic updates {(p.AutoUpdate ? "on" : "off")} · Scheduled backups {(p.AutoBackup ? "on" : "off")}";
         model.NextUpdate = p.AutoUpdate ? schedule?.NextUpdate?.LocalDateTime.ToString("MMM d, h:mm tt") ?? "Scheduled after saving" : "Not scheduled";
         model.NextBackup = p.AutoBackup ? "Next backup: " + (schedule?.NextBackup?.LocalDateTime.ToString("MMM d, h:mm tt") ?? "Scheduled after saving") : "Not scheduled";
     }
@@ -291,12 +290,12 @@ public partial class MainWindow : Window
         dialog.Content = new StackPanel { Margin = new Thickness(28), Spacing = 20, Children = { new TextBlock { Text = title, FontSize = 22, FontWeight = FontWeight.SemiBold }, new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap }, close } };
         await dialog.ShowDialog(this);
     }
-    private async void BrowseData(object? sender, RoutedEventArgs e) { var folder = await Folder("Choose this server's Saved folder"); if (folder is not null) DataFolder.Text = folder; }
+    private void OpenDataFolder(object? sender, RoutedEventArgs e) { if (model.SelectedProfile is { } p) OpenPath(p.SavedPath); }
     private async void BrowseBackups(object? sender, RoutedEventArgs e) { var folder = await Folder("Choose a backup folder outside the server"); if (folder is not null) BackupFolder.Text = folder; }
     private async void SaveConnection(object? sender, RoutedEventArgs e)
     {
         if (model.SelectedProfile is not { } p || Program.Demo) return;
-        try { await ReplaceProfileAsync(p with { Name = ProfileName.Text?.Trim() ?? "", BackupPath = BackupFolder.Text?.Trim() ?? "", DataPath = DataFolder.Text?.Trim() ?? "" }); LoadProfile(); }
+        try { await ReplaceProfileAsync(p with { Name = ProfileName.Text?.Trim() ?? "", BackupPath = BackupFolder.Text?.Trim() ?? "" }); LoadProfile(); }
         catch (Exception error) { model.Notice = error.Message; }
     }
     private async void SaveAutomation(object? sender, RoutedEventArgs e)

@@ -85,8 +85,6 @@ public sealed class WorkspaceModel : INotifyPropertyChanged
     public bool ShowServerPicker { get => showServerPicker; set => Set(ref showServerPicker, value); }
     private string pageTitle = "Servers";
     public string PageTitle { get => pageTitle; set => Set(ref pageTitle, value); }
-    private string pageSubtitle = "Choose a server to manage, or add a new world.";
-    public string PageSubtitle { get => pageSubtitle; set => Set(ref pageSubtitle, value); }
     private string status = "Not connected";
     public string Status { get => status; set => Set(ref status, value); }
     private string players = "—", cpu = "—", memory = "—", uptime = "—", diskFree = "—", build = "Not checked yet", backup = "No recovery points yet", automation = "Automation is off", notice = "Ready. Connect a server to get started.", activity = "", diagnostics = "Select a server, then refresh diagnostics.", nextUpdate = "Not scheduled", nextBackup = "Not scheduled";

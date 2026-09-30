@@ -29,7 +29,8 @@ public class SmokeTests
         var saved = Path.Combine(install, "RSDragonwilds", "Saved"); Directory.CreateDirectory(saved);
         var launcher = Path.Combine(install, OperatingSystem.IsWindows() ? "RSDragonwildsServer.exe" : "RSDragonwildsServer.sh");
         File.WriteAllText(launcher, "read-only import fixture, not an executable");
-        var world = Path.Combine(saved, "world.sav"); File.WriteAllText(world, "preserved world");
+        var saveGames = Path.Combine(saved, "SaveGames"); Directory.CreateDirectory(saveGames);
+        var world = Path.Combine(saveGames, "world.sav"); File.WriteAllText(world, "preserved world");
         var backup = Path.Combine(root, "backups");
         var dialog = new ImportServerDialog("", []); dialog.Show();
         try
@@ -38,13 +39,15 @@ public class SmokeTests
             var location = fields.Single(t => t.Name == "ImportLocation");
             fields.Single(t => t.Name == "ImportBackupFolder").Text = backup;
             var import = dialog.GetLogicalDescendants().OfType<Button>().Single(b => Equals(b.Content, "Import server"));
-            var confirmation = dialog.GetLogicalDescendants().OfType<CheckBox>().Single();
+            var confirmation = Field<CheckBox>(dialog, "ImportConfirmed");
             foreach (var input in new[] { install, "\"" + launcher + "\"" })
             {
                 location.Text = input;
                 Assert.False(import.IsEnabled); Assert.False(confirmation.IsChecked);
                 await dialog.ReviewAsync();
                 Assert.Equal(saved, fields.Single(t => t.Name == "ImportSavedFolder").Text);
+                Assert.True(fields.Single(t => t.Name == "ImportSavedFolder").IsReadOnly);
+                Assert.Contains("world.sav", Field<TextBlock>(dialog, "ImportDetails").Text);
                 confirmation.IsChecked = true; Assert.True(import.IsEnabled);
                 Assert.Equal("preserved world", File.ReadAllText(world));
                 Assert.Equal("read-only import fixture, not an executable", File.ReadAllText(launcher));
@@ -75,6 +78,7 @@ public class SmokeTests
             await dialog.AdvanceAsync();
             var review = Field<TextBlock>(dialog, "CreateReview").Text!;
             Assert.Contains(Path.Combine(root, "WyrmwatchServers", "carter-s-new-world"), review);
+            Assert.Contains(Path.Combine(root, "WyrmwatchServers", "carter-s-new-world", "RSDragonwilds", "Saved"), review);
             Assert.Contains("automatic updates off", review);
             Assert.DoesNotContain(Field<TextBox>(dialog, "CreateAdminPassword").Text!, review);
             dialog.Close();
@@ -196,24 +200,65 @@ public class SmokeTests
         var root = Path.Combine(Path.GetTempPath(), "wyrmwatch-ui-" + Guid.NewGuid().ToString("N"));
         var launcher = Path.Combine(root, "RSDragonwildsServer.exe");
         var saved = Path.Combine(root, "RSDragonwilds", "Saved"); Directory.CreateDirectory(saved); File.WriteAllText(launcher, "fixture");
-        var dialog = new ImportServerDialog(launcher, []);
+        var dialog = new ImportServerDialog("", []);
         dialog.Show();
         Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+        Field<TextBox>(dialog, "ImportLocation").Text = launcher;
         try
         {
             await dialog.ReviewAsync();
             var controls = dialog.GetLogicalDescendants().OfType<Control>().ToArray();
             var import = controls.OfType<Button>().Single(b => Equals(b.Content, "Import server"));
-            var confirmation = controls.OfType<CheckBox>().Single();
+            var confirmation = Field<CheckBox>(dialog, "ImportConfirmed");
             Assert.False(import.IsEnabled); confirmation.IsChecked = true;
             Assert.True(import.IsEnabled, string.Join("\n", controls.OfType<TextBlock>().Select(t => t.Text)));
-            controls.OfType<TextBox>().Single(t => t.Name == "ImportSavedFolder").Text = Path.Combine(root, "missing");
+            Field<CheckBox>(dialog, "ImportCustomSaved").IsChecked = true;
+            Field<TextBox>(dialog, "ImportSavedFolder").Text = Path.Combine(root, "missing");
             Assert.False(import.IsEnabled); Assert.False(confirmation.IsChecked);
             await dialog.ReviewAsync(); confirmation.IsChecked = true; Assert.False(import.IsEnabled);
             Assert.Equal("fixture", File.ReadAllText(launcher));
         }
         finally { dialog.Close(); if (SafePaths.Within(root, Path.GetTempPath())) Directory.Delete(root, true); }
     }
+    [AvaloniaFact]
+    public async Task ImportCustomLocationIsExplicitAndNeverCreatesOrMovesSaves()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "wyrmwatch-ui-" + Guid.NewGuid().ToString("N"));
+        var install = Path.Combine(root, "install"); Directory.CreateDirectory(install);
+        var launcher = Path.Combine(install, "RSDragonwildsServer.exe"); File.WriteAllText(launcher, "fixture only");
+        var saved = Path.Combine(root, "existing-data", "Saved");
+        var worlds = Path.Combine(saved, "SaveGames"); Directory.CreateDirectory(worlds);
+        var world = Path.Combine(worlds, "existing.sav"); File.WriteAllText(world, "preserve custom world");
+        var defaultSaved = Path.Combine(install, "RSDragonwilds", "Saved");
+        var backup = Path.Combine(root, "backups");
+        var dialog = new ImportServerDialog("", []); dialog.Show();
+        try
+        {
+            Field<TextBox>(dialog, "ImportLocation").Text = install;
+            Field<TextBox>(dialog, "ImportBackupFolder").Text = backup;
+            await dialog.ReviewAsync();
+            Assert.True(Field<TextBox>(dialog, "ImportSavedFolder").IsReadOnly);
+            Assert.False(Field<Button>(dialog, "ImportAccept").IsEnabled);
+            Assert.False(Directory.Exists(defaultSaved));
+            var custom = Field<CheckBox>(dialog, "ImportCustomSaved"); custom.IsChecked = true;
+            Assert.False(Field<TextBox>(dialog, "ImportSavedFolder").IsReadOnly);
+            Field<TextBox>(dialog, "ImportSavedFolder").Text = saved;
+            await dialog.ReviewAsync();
+            Assert.Contains("existing.sav", Field<TextBlock>(dialog, "ImportDetails").Text);
+            Field<CheckBox>(dialog, "ImportConfirmed").IsChecked = true;
+            Assert.True(Field<Button>(dialog, "ImportAccept").IsEnabled);
+            custom.IsChecked = false;
+            Assert.True(Field<TextBox>(dialog, "ImportSavedFolder").IsReadOnly);
+            Assert.False(Field<Button>(dialog, "ImportAccept").IsEnabled);
+            await dialog.ReviewAsync();
+            Assert.False(Field<Button>(dialog, "ImportAccept").IsEnabled);
+            Assert.Equal("preserve custom world", File.ReadAllText(world));
+            Assert.False(Directory.Exists(defaultSaved)); Assert.False(Directory.Exists(backup));
+            Assert.Equal(2, Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories).Count());
+        }
+        finally { dialog.Close(); Directory.Delete(root, true); }
+    }
+
     [AvaloniaFact]
     public void PagesThemesAndFocusedFormSurviveStatusUpdates()
     {
@@ -230,7 +275,7 @@ public class SmokeTests
             var model = (WorkspaceModel)window.DataContext!; model.Cpu = "12.3%"; model.Players = "3"; model.Status = "Online";
             Assert.Equal("Unsaved user input", field.Text);
             window.ShowPage(WorkspacePage.AppSettings);
-            var language = new Wyrmwatch.Core.LanguagePack("xx", "Test language", new() { [Localization.Key("Make yourself at home.")] = "Translated settings" });
+            var language = new Wyrmwatch.Core.LanguagePack("xx", "Test language", new() { [Localization.Key("App settings")] = "Translated settings" });
             var languages = window.FindControl<ComboBox>("LanguagePicker")!; languages.ItemsSource = new[] { Localization.English, language }; languages.SelectedIndex = 1;
             Assert.Equal("Translated settings", model.PageTitle); Assert.Equal("Unsaved user input", field.Text);
             languages.SelectedIndex = 0;
@@ -272,6 +317,7 @@ public class SmokeTests
             Assert.False(window.FindControl<StackPanel>("SettingsPage")!.IsVisible);
             var owner = window.FindControl<TextBox>("OwnerId")!; owner.Text = "unsaved owner";
             Assert.Contains(window.FindControl<StackPanel>("ServerSettingsPage")!, owner.GetLogicalAncestors());
+            Assert.True(window.FindControl<TextBox>("DataFolder")!.IsReadOnly);
             Assert.DoesNotContain(window.FindControl<StackPanel>("SettingsPage")!, owner.GetLogicalAncestors());
             window.ShowPage(WorkspacePage.AppSettings); Assert.False(model.ShowServerPicker);
             window.ShowPage(WorkspacePage.ServerSettings); Assert.True(model.ShowServerPicker); Assert.Equal("unsaved owner", owner.Text);

@@ -63,6 +63,7 @@ public class ServerFlowsTests
         await Until(() => model.SelectedProfile?.Name == "Test Beta edited");
         beta = model.SelectedProfile!;
         Assert.Equal("Test Beta edited", fixture.Store.Read("settings.json", () => new ManagerSettings()).Servers.Single(p => p.Id == beta.Id).Name);
+        Assert.Equal(Path.GetDirectoryName(betaWorld), Path.Combine(beta.SavedPath, "SaveGames"));
         Assert.Equal(betaBytes, File.ReadAllBytes(betaWorld));
         await WaitState(fixture, false);
         Type(window, "GameServerName", "Beta game name edited");

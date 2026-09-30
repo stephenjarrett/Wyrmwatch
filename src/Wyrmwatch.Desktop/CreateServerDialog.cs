@@ -50,23 +50,22 @@ public sealed class CreateServerDialog : Window
         regenerate.Click += (_, _) => admin.Text = ServerCreationPlan.GeneratePassword();
         pages =
         [
-            Page("Make room for a new world",
-                Hint("Wyrmwatch will download the dedicated server and prepare its settings. Have an existing world? Cancel and choose Import existing server."),
-                Field("Server name", serverName, "The name shown in your saved servers list."),
+            Page("World & owner",
+                Field("Server name", serverName),
                 Field("World name", world, "Players search for this exact name in the game's Public Worlds tab."),
                 Field("Owner Player ID · required", owner, "Open Dragonwilds → Settings. Scroll to the bottom and use Copy beside your Player ID. This is not your Steam ID.")),
             Page("Folders & access",
-                Field("Install parent folder", parent, "A populated parent such as C:\\Games is fine. A separate child folder below will hold this server."),
+                Field("Install parent folder", parent, "Choose a parent such as C:\\Games. The new folder below will contain the server and its saves."),
                 Browse(parent, "Choose the parent folder for the new server"),
-                Field("New server folder name", folder, "Use a new name to keep each server's installation and saves separate."),
-                Field("Backup parent folder", backupParent, "Backups use a matching child folder here. Scheduled backups start off."),
+                Field("New server folder name", folder, "This folder must not already exist."),
+                Field("Backup parent folder", backupParent, "Backups go in a matching child folder, separate from the server."),
                 Browse(backupParent, "Choose the parent folder for backups"),
                 Field("Game port · UDP", port, "7777 is the default. Internet players need this UDP port allowed through your firewall and router."),
-                Field("Admin password · generated for you", admin, "Keep this private: it grants server administration. You can view or change it later in Server settings."),
+                Field("Admin password · generated", admin, "Keep this private. You can view or change it in Server settings."),
                 regenerate,
                 Field("World password · optional", password, "Share this with players. Leave blank to allow anyone who can reach the server to join."), reveal),
-            Page("Ready to create?", summary,
-                Hint("Create Server downloads the game through SteamCMD and writes these settings. The download may take several minutes. Your world is created when you first press Start; automation starts off."))
+            Page("Review setup", summary,
+                Hint("Downloads through SteamCMD. The world is created on first start."))
         ];
         var pageGrid = new Grid(); foreach (var page in pages) pageGrid.Children.Add(page);
         var body = new StackPanel { Margin = new Thickness(28, 24, 28, 16), Spacing = 18, Children = { stepLabel, pageGrid, progress, message } };
@@ -89,7 +88,12 @@ public sealed class CreateServerDialog : Window
     }
 
     private static TextBlock Hint(string text) => new() { Text = text, TextWrapping = TextWrapping.Wrap, Classes = { "muted" }, FontSize = 13 };
-    private static StackPanel Field(string label, Control input, string help) => new() { Spacing = 6, Children = { new TextBlock { Text = label, FontWeight = FontWeight.SemiBold }, input, Hint(help) } };
+    private static StackPanel Field(string label, Control input, string? help = null)
+    {
+        var field = new StackPanel { Spacing = 6, Children = { new TextBlock { Text = label, FontWeight = FontWeight.SemiBold }, input } };
+        if (help is not null) field.Children.Add(Hint(help));
+        return field;
+    }
     private static StackPanel Page(string title, params Control[] controls)
     {
         var panel = new StackPanel { Spacing = 18 };
