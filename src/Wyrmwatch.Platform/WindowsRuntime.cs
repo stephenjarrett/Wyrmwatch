@@ -17,6 +17,7 @@ public sealed class WindowsRuntime(JsonStore store, string signalHelper) : IServ
     private readonly SemaphoreSlim gate = new(1, 1);
     private readonly Dictionary<string, string> jobNames = store.Read("owned-jobs.json", () => new Dictionary<string, string>());
     internal Action<Process>? BeforeProcessInspection { get; set; }
+    internal Action<int, Exception, bool>? InspectionFailureObserved { get; set; }
     public async Task<ServerSnapshot> InspectAsync(ServerProfile profile, CancellationToken token = default)
     {
         await gate.WaitAsync(token);
@@ -30,8 +31,10 @@ public sealed class WindowsRuntime(JsonStore store, string signalHelper) : IServ
         {
             using (process)
             {
+                var inspectedId = 0;
                 try
                 {
+                    inspectedId = process.Id;
                     if (process.ProcessName is not ("RSDragonwildsServer" or "RSDragonwildsServer-Win64-Shipping")) continue;
                     BeforeProcessInspection?.Invoke(process);
                     var path = process.MainModule?.FileName;
@@ -42,7 +45,11 @@ public sealed class WindowsRuntime(JsonStore store, string signalHelper) : IServ
                     found.Add(identity); cpuMs += processCpu; memory += processMemory;
                 }
                 catch (Exception error) when (error is Win32Exception or InvalidOperationException or ArgumentException or IOException or UnauthorizedAccessException)
-                { if (!ConfirmedExit(process)) accessible = false; }
+                {
+                    var exited = ConfirmedExit(process);
+                    if (!exited) accessible = false;
+                    InspectionFailureObserved?.Invoke(inspectedId, error, exited);
+                }
             }
         }
         if (found.Count == 0) { cpu.Remove(profile.Id); return ServerSnapshot.Offline with { Accessible = accessible, Players = accessible ? 0 : null, ActivityReason = accessible ? "Server is stopped" : "A server process cannot be inspected. Match its permissions before continuing." }; }

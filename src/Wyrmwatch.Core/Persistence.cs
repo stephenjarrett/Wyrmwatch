@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text.Json;
 
 namespace Wyrmwatch.Core;
@@ -27,26 +28,36 @@ public static class SafePaths
 
 public sealed class JsonStore(string directory)
 {
+    private readonly ConcurrentDictionary<string, byte> knownFiles = new(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
     public string DirectoryPath { get; } = Path.GetFullPath(directory);
     public static readonly JsonSerializerOptions Options = new() { WriteIndented = true, PropertyNameCaseInsensitive = true };
     public T Read<T>(string name, Func<T> fallback)
     {
         var path = Path.Combine(DirectoryPath, name);
-        var existed = File.Exists(path);
+        // Absence means first-run defaults only until this store has seen a file.
+        // A replacement gap must never erase saved settings in memory or disable
+        // background mode. Remember existence, not cached document contents.
+        if (File.Exists(path)) knownFiles.TryAdd(path, 0);
         for (var attempt = 0; ; attempt++)
         {
             try
             {
                 using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-                return JsonSerializer.Deserialize<T>(stream, Options) ?? throw new JsonException("Empty document");
+                var value = JsonSerializer.Deserialize<T>(stream, Options) ?? throw new JsonException("Empty document");
+                knownFiles.TryAdd(path, 0);
+                return value;
             }
             // Windows replacement can briefly make the target unavailable to a new reader.
-            catch (FileNotFoundException)
+            catch (IOException error) when (error is FileNotFoundException or DirectoryNotFoundException)
             {
-                if (attempt >= 4) { if (existed) throw new IOException($"Cannot read {name} during replacement. Try again; no preferences were changed."); return fallback(); }
+                if (error is DirectoryNotFoundException && !knownFiles.ContainsKey(path)) return fallback();
+                if (attempt >= 4)
+                {
+                    if (knownFiles.ContainsKey(path)) throw new IOException($"Cannot read previously saved {name}. Try again; defaults were not loaded.", error);
+                    return fallback();
+                }
                 Thread.Sleep(5);
             }
-            catch (DirectoryNotFoundException) { return fallback(); }
             catch (IOException error) when (AtomicFile.SharingViolation(error) && attempt < 20) { Thread.Sleep(10); }
             catch (JsonException e) { throw new IOException($"Cannot read {name}. The original file has been preserved.", e); }
         }
@@ -55,6 +66,7 @@ public sealed class JsonStore(string directory)
     {
         Directory.CreateDirectory(DirectoryPath);
         AtomicFile.Write(Path.Combine(DirectoryPath, name), JsonSerializer.Serialize(value, Options));
+        knownFiles.TryAdd(Path.Combine(DirectoryPath, name), 0);
     }
 }
 
