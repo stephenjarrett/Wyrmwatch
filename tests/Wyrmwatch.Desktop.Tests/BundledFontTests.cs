@@ -7,7 +7,7 @@ using Wyrmwatch.Desktop;
 
 namespace Wyrmwatch.Desktop.Tests;
 
-public class BundledFontTests
+public class BundledFontTests : IsolatedDesktopTest
 {
     [AvaloniaFact]
     public void MainWindowAndBoldTypographyRenderWithoutAnyInstalledFonts()

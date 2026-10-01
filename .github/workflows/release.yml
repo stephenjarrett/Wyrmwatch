@@ -4,6 +4,9 @@ on:
     tags: ['v*']
 permissions:
   contents: read
+concurrency:
+  group: wyrmwatch-release
+  cancel-in-progress: false
 jobs:
   package:
     strategy:
@@ -19,6 +22,10 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
+      - name: Release policy and fault checks (offline)
+        run: |
+          python -m pip install --disable-pip-version-check -r tests/release/requirements.txt
+          python -m unittest discover -s tests/release -v
       - name: Validate release version
         shell: pwsh
         run: |
@@ -63,15 +70,12 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      actions: read
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
         with:
-          pattern: release-*
-          merge-multiple: true
-          path: packages
-      - name: Publish release
+          persist-credentials: false
+      - name: Publish the verified matching master draft
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ github.repository }}
-        run: gh release create "$GITHUB_REF_NAME" packages/* --verify-tag --title "Wyrmwatch $GITHUB_REF_NAME" --notes-file "docs/releases/$GITHUB_REF_NAME.md"
+        run: python scripts/manage-release.py publish --run-id "$GITHUB_RUN_ID"

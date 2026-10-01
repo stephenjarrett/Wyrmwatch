@@ -17,7 +17,7 @@ using Wyrmwatch.Desktop;
 
 namespace Wyrmwatch.Desktop.Tests;
 
-public class VerticalAlignmentTests
+public class VerticalAlignmentTests : IsolatedDesktopTest
 {
     [AvaloniaFact]
     public void SharedInputsCenterActualTextAtNormalAndExpandedHeightsInBothThemes()

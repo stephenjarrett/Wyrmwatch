@@ -13,7 +13,7 @@ using Wyrmwatch.Desktop;
 
 namespace Wyrmwatch.Desktop.Tests;
 
-public class AppUpdateFlowsTests
+public class AppUpdateFlowsTests : IsolatedDesktopTest
 {
     [AvaloniaFact]
     public async Task ByteProgressNeverEnablesHandoffBeforeVerificationAndReadyPreservesCurrentApp()
