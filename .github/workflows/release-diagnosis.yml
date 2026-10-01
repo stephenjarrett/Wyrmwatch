@@ -1,0 +1,21 @@
+name: Inspect release draft lookup
+on:
+  push:
+    branches: [sjarrett/release-draft-diagnosis]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    # Draft reads require the same permission as the existing release jobs.
+    # This diagnostic makes GET/query calls only: no release or tag mutations.
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Compare draft lookups without changing release state
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python scripts/inspect-release.py
