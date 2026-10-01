@@ -205,9 +205,15 @@ class Manager:
     def approved_commit(self):
         require(self.tag_commit() == self.head, "Approved tag does not point at the tested commit")
 
-    def prepare(self, run_id):
+    def prepare(self, run_id, _source_guard=None):
+        def guard():
+            if _source_guard is None:
+                self.current_master()
+            else:
+                _source_guard()
+                self.approved_commit()
         self.checked_run(run_id)
-        self.current_master()
+        guard()
         existing = self.find_release()
         if existing and not existing["draft"]:
             return "Version already published; bump the version for a new candidate"
@@ -237,7 +243,7 @@ class Manager:
                     for asset in existing.get("assets", [])} if existing else {}
         metadata = dict(repository=self.repository, version=self.version, sha=self.head, run_id=int(run_id),
                         phase="preparing", assets=hashes, previous_assets=previous)
-        self.current_master()
+        guard()
         values = dict(tag_name=self.tag, target_commitish=self.head, name="Wyrmwatch " + self.tag,
                       body=release_body(self.notes, metadata), draft=True, prerelease=False)
         if existing:
@@ -260,7 +266,7 @@ class Manager:
                 self.api.upload(self.repository, self.tag, path)
         current = self.owned_draft(release["id"], metadata)
         validate_assets(current, metadata)
-        self.current_master()
+        guard()
         metadata = dict(metadata, phase="ready", previous_assets={})
         self.api.api(f"{self.root}/releases/{release['id']}", "PATCH",
                      {"tag_name": self.tag, "target_commitish": self.head,
@@ -268,10 +274,10 @@ class Manager:
         confirmed = self.owned_draft(release["id"], metadata)
         require(confirmed["tag_name"] == self.tag, "GitHub did not preserve the ready draft's version tag")
         validate_assets(confirmed, metadata)
-        self.current_master()
+        guard()
         return f"Verified draft {release['id']} ready at {self.head}; approve its exact commit with {self.tag}"
 
-    def publish(self, run_id, approved_tag):
+    def publish(self, run_id, approved_tag, _before_publish=None):
         require(approved_tag == self.tag, "Approved tag must match the project version")
         self.checked_run(run_id, packages=True)
         self.approved_commit()
@@ -286,6 +292,8 @@ class Manager:
             return "Matching release already published; no changes"
         require(metadata["phase"] == "ready", "Draft is incomplete; refuse to publish")
         self.owned_draft(release["id"], metadata)
+        if _before_publish is not None:
+            _before_publish()
         metadata = dict(metadata, phase="published")
         published = self.api.api(f"{self.root}/releases/{release['id']}", "PATCH",
                                 {"tag_name": self.tag, "target_commitish": self.head,

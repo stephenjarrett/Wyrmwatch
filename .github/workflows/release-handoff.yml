@@ -1,0 +1,36 @@
+name: Prepare and publish approved releases
+on:
+  workflow_run:
+    workflows: [Checks and portable builds, Release portable builds]
+    types: [completed]
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: wyrmwatch-release
+  cancel-in-progress: false
+jobs:
+  handoff:
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master') ||
+      (github.event.workflow_run.head_repository.full_name == github.repository &&
+       github.event.workflow_run.event == 'push' &&
+       ((github.event.workflow_run.path == '.github/workflows/build.yml' &&
+         github.event.workflow_run.head_branch == 'master' && github.event.workflow_run.conclusion == 'success') ||
+        (github.event.workflow_run.path == '.github/workflows/release.yml' &&
+         startsWith(github.event.workflow_run.head_branch, 'v') &&
+         (github.event.workflow_run.conclusion == 'success' || github.event.workflow_run.conclusion == 'failure'))))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: master
+          persist-credentials: false
+      - name: Discover verified source runs and complete approved publication
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python scripts/release-handoff.py
