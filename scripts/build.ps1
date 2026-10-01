@@ -16,12 +16,12 @@ try {
     }
     $staging=Join-Path (Split-Path -Parent $output) ('.publish-'+$Runtime+'-'+[Guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $staging,$output -Force | Out-Null
-    & $dotnet publish src/Wyrmwatch.Desktop -c Release -r $Runtime --self-contained true -o "$staging/desktop"
+    & $dotnet publish src/Wyrmwatch.Desktop -c Release -r $Runtime --self-contained true -p:WyrmwatchCompactPublish=true -o "$staging/desktop"
     if($LASTEXITCODE -ne 0){throw 'Desktop publish failed'}
-    & $dotnet publish src/Wyrmwatch.Agent -c Release -r $Runtime --self-contained true -p:SharedRuntimeLauncher=true -o "$staging/agent"
+    & $dotnet publish src/Wyrmwatch.Agent -c Release -r $Runtime --self-contained true -p:WyrmwatchCompactPublish=true -p:SharedRuntimeLauncher=true -o "$staging/agent"
     if($LASTEXITCODE -ne 0){throw 'Background manager publish failed'}
     if($Runtime -eq 'win-x64'){
-        & $dotnet publish src/Wyrmwatch.Signal -c Release -r $Runtime --self-contained true -o "$staging/signal"
+        & $dotnet publish src/Wyrmwatch.Signal -c Release -r $Runtime --self-contained true -p:WyrmwatchCompactPublish=true -o "$staging/signal"
         if($LASTEXITCODE -ne 0){throw 'Shutdown helper publish failed'}
     }
     # Share identical runtime/dependency files. A version mismatch must fail the build.
@@ -29,7 +29,15 @@ try {
     foreach($component in @('desktop','agent','signal')) {
         $componentPath=Join-Path $staging $component
         if(-not (Test-Path -LiteralPath $componentPath)){continue}
+        $assemblyInputs=Join-Path $componentPath 'package-assembly-inputs.txt'
+        & $dotnet run --file scripts/verify-published-assemblies.cs -- $assemblyInputs $componentPath
+        if($LASTEXITCODE -ne 0){throw "Assembly preservation check failed: $component"}
+        foreach($input in Get-Content -LiteralPath $assemblyInputs) {
+            $name=[IO.Path]::GetFileName($input)
+            if(-not (Test-Path -LiteralPath (Join-Path $componentPath $name))){$null=$retired.Add($name)}
+        }
         foreach($file in Get-ChildItem -LiteralPath $componentPath -Recurse -File) {
+            if($file.Name -eq 'package-assembly-inputs.txt'){continue}
             $relative=[IO.Path]::GetRelativePath($componentPath,$file.FullName)
             $isAgentRoot=$component -eq 'agent' -and [IO.Path]::GetDirectoryName($relative) -eq ''
             if($isAgentRoot -and $file.Name -notin @('Wyrmwatch.Agent.exe','Wyrmwatch.Agent')) { $null=$retired.Add('agent/'+$file.Name) }
@@ -46,6 +54,10 @@ try {
                 Copy-Item -LiteralPath $file.FullName -Destination $destination
             }
         }
+    }
+    # An assembly omitted by one component may still be required by another.
+    foreach($name in @($retired)) {
+        if(Test-Path -LiteralPath (Join-Path $output $name)){$null=$retired.Remove($name)}
     }
     # Exact obsolete package paths, used to reclaim space during installer upgrades.
     @($retired | Sort-Object) | ConvertTo-Json | Set-Content -LiteralPath "$output/retired-package-files.json" -Encoding utf8
@@ -121,7 +133,7 @@ try {
         'Third-party components retain their own licenses. THIRD-PARTY-NOTICES.md lists their versions, notices, and upstream sources.'
     ) | Set-Content -LiteralPath "$output/SOURCE.md" -Encoding utf8
     $bytes=(Get-ChildItem -LiteralPath $output -Recurse -File | Measure-Object Length -Sum).Sum
-    Write-Host "Application payload: $([math]::Round($bytes/1MB,1)) MiB; one runtime, no debugging-symbol files"
+    Write-Host "Application payload: $([math]::Round($bytes/1MB,1)) MiB; one runtime, whole retained assemblies, no debugging-symbol files"
     $resolvedStaging=(Resolve-Path -LiteralPath $staging).Path
     if(-not $resolvedStaging.StartsWith((Split-Path -Parent $output)+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase) -or (Split-Path -Leaf $resolvedStaging) -notlike '.publish-*'){throw 'Unexpected staging path; staging files preserved'}
     Remove-Item -LiteralPath $resolvedStaging -Recurse -Force

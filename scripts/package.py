@@ -35,12 +35,13 @@ if sorted(p.name for p in (folder / 'agent').iterdir()) != [Path(agent).name]:
     raise RuntimeError('The agent folder must contain only its shared-runtime launcher')
 # Catch unexpected payload growth before publishing a download.
 payload_size = sum(p.stat().st_size for p in folder.rglob('*') if p.is_file())
-if payload_size > 180 * 1024 * 1024:
-    raise RuntimeError(f'Application payload exceeds 180 MiB: {payload_size:,} bytes')
+if payload_size > 110 * 1024 * 1024:
+    raise RuntimeError(f'Application payload exceeds 110 MiB: {payload_size:,} bytes')
 with zipfile.ZipFile(folder / 'Wyrmwatch-source.zip') as source:
     if source.testzip() is not None:
         raise RuntimeError('Damaged source archive')
-    for name in ('LICENSE', 'NOTICE', 'scripts/build.ps1', 'scripts/package.py',
+    for name in ('LICENSE', 'NOTICE', 'Directory.Build.props', 'Directory.Build.targets',
+                 'scripts/build.ps1', 'scripts/package.py', 'scripts/verify-published-assemblies.cs',
                  'src/Wyrmwatch.Agent/Program.cs', 'src/Wyrmwatch.Desktop/MainWindow.axaml',
                  'src/Wyrmwatch.Core/Wyrmwatch.Core.csproj',
                  'src/Wyrmwatch.Platform/Wyrmwatch.Platform.csproj',

@@ -33,7 +33,12 @@ if args.runtime == 'win-x64':
     for name in retired:
         if not isinstance(name, str) or not re.fullmatch(r'(?:agent/)?[A-Za-z0-9_.-]+', name):
             raise RuntimeError('Unsafe obsolete package path')
-        if '..' in name or (not name.startswith('agent/') and not name.endswith('.pdb')) or (build / name).exists():
+        runtime_assembly = re.fullmatch(r'(?:System|Microsoft\.AspNetCore|Microsoft\.Extensions|Microsoft\.Net|Microsoft\.Win32|Avalonia)\.[A-Za-z0-9_.-]+\.dll', name)
+        runtime_assembly = runtime_assembly or name in {
+            'Avalonia.dll', 'Microsoft.CSharp.dll', 'Microsoft.JSInterop.dll',
+            'Microsoft.VisualBasic.dll', 'Microsoft.VisualBasic.Core.dll',
+            'mscorlib.dll', 'netstandard.dll', 'WindowsBase.dll'}
+        if '..' in name or (not name.startswith('agent/') and not name.endswith('.pdb') and not runtime_assembly) or (build / name).exists():
             raise RuntimeError(f'Refusing to remove a current or unrelated package file: {name}')
     with tempfile.TemporaryDirectory(prefix='wyrmwatch-inno-') as temporary:
         obsolete = Path(temporary) / 'obsolete-files.iss'

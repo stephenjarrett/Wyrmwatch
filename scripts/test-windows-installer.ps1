@@ -16,7 +16,8 @@ foreach($file in @('Wyrmwatch.exe','agent/Wyrmwatch.Agent.exe','LICENSE','Wyrmwa
     if(-not (Test-Path -LiteralPath (Join-Path $app $file))){throw "Installer omitted $file"}
 }
 # Simulate files from the old layout; upgrades remove exact packaged paths only.
-foreach($oldFile in @('libSkiaSharp.pdb','agent/System.Private.CoreLib.dll','agent/Wyrmwatch.Agent.runtimeconfig.json')) {
+$obsoleteFiles=@('libSkiaSharp.pdb','agent/System.Private.CoreLib.dll','agent/Wyrmwatch.Agent.runtimeconfig.json','Microsoft.AspNetCore.Mvc.Core.dll')
+foreach($oldFile in $obsoleteFiles) {
     Set-Content -LiteralPath (Join-Path $app $oldFile) -Value 'obsolete package fixture'
 }
 $unrelated=Join-Path $app 'agent/preserve-user-notes.txt'
@@ -42,7 +43,7 @@ try {
     $headers=$null
 }
 if((Install-Package) -ne 0){throw 'Reinstallation after clean shutdown failed'}
-foreach($oldFile in @('libSkiaSharp.pdb','agent/System.Private.CoreLib.dll','agent/Wyrmwatch.Agent.runtimeconfig.json')) {
+foreach($oldFile in $obsoleteFiles) {
     if(Test-Path -LiteralPath (Join-Path $app $oldFile)){throw "Upgrade left obsolete package file: $oldFile"}
 }
 if((Get-Content -LiteralPath $unrelated -Raw).Trim() -ne 'preserve-unrelated-file'){throw 'Upgrade changed an unrelated file'}

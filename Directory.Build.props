@@ -9,4 +9,14 @@
     <Copyright>Copyright (c) 2026 Stephen Jarrett and Wyrmwatch contributors.</Copyright>
     <PackageLicenseExpression>AGPL-3.0-only</PackageLicenseExpression>
   </PropertyGroup>
+  <PropertyGroup Condition="'$(WyrmwatchCompactPublish)' == 'true'">
+    <!-- Assembly-level pruning only; UI bindings and JSON still use reflection. -->
+    <PublishTrimmed>true</PublishTrimmed>
+    <TrimMode>copyused</TrimMode>
+    <TrimmerRemoveSymbols>true</TrimmerRemoveSymbols>
+    <JsonSerializerIsReflectionEnabledByDefault>true</JsonSerializerIsReflectionEnabledByDefault>
+    <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
+    <CustomResourceTypesSupport>true</CustomResourceTypesSupport>
+    <_DefaultValueAttributeSupport>true</_DefaultValueAttributeSupport>
+  </PropertyGroup>
 </Project>

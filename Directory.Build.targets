@@ -1,0 +1,15 @@
+<Project>
+  <Target Name="KeepWholePublishedAssemblies" AfterTargets="PrepareForILLink"
+          Condition="'$(WyrmwatchCompactPublish)' == 'true'">
+    <ItemGroup>
+      <!-- Override package/framework metadata too: never remove types or members. -->
+      <ManagedAssemblyToLink>
+        <TrimMode>copyused</TrimMode>
+      </ManagedAssemblyToLink>
+    </ItemGroup>
+    <!-- Build input for verification and exact obsolete-file cleanup; never shipped. -->
+    <MakeDir Directories="$(PublishDir)" />
+    <WriteLinesToFile File="$(PublishDir)package-assembly-inputs.txt"
+                      Lines="@(ManagedAssemblyToLink->'%(FullPath)')" Overwrite="true" />
+  </Target>
+</Project>

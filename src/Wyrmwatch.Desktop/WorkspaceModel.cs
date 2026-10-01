@@ -67,6 +67,17 @@ public sealed class WorkspaceModel : INotifyPropertyChanged
         Refresh(nameof(ServerCount));
     }
     public ObservableCollection<BackupRow> Backups { get; } = [];
+    public void SyncBackups(IReadOnlyList<BackupInfo> backups)
+    {
+        // Archives are immutable. Keep existing rows so refreshes preserve selection.
+        for (var i = 0; i < backups.Count; i++)
+        {
+            var existing = Backups.FirstOrDefault(row => SafePaths.Same(row.Info.Path, backups[i].Path));
+            if (existing is null) Backups.Insert(i, new(backups[i]));
+            else if (Backups.IndexOf(existing) != i) Backups.Move(Backups.IndexOf(existing), i);
+        }
+        while (Backups.Count > backups.Count) Backups.RemoveAt(Backups.Count - 1);
+    }
     public ObservableCollection<OperationRow> Operations { get; } = [];
     private ServerProfile? selectedProfile;
     public ServerProfile? SelectedProfile
