@@ -1,0 +1,33 @@
+name: Prepare verified release draft
+on:
+  workflow_run:
+    workflows: [Checks and portable builds]
+    types: [completed]
+    branches: [master]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: wyrmwatch-release
+  cancel-in-progress: false
+jobs:
+  prepare:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'master' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
+      - name: Verify artifacts and prepare only a draft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SOURCE_RUN: ${{ github.event.workflow_run.id }}
+        run: python scripts/manage-release.py prepare --run-id "$SOURCE_RUN"

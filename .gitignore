@@ -8,3 +8,5 @@ dist/
 TestResults/
 *.pfx
 *.log
+__pycache__/
+*.pyc
