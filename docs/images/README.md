@@ -1,12 +1,12 @@
 # README screenshots
 
-These PNGs are direct window captures of Wyrmwatch 0.2.1 on Ubuntu 24.04, using its built-in `--demo` mode in a separate workspace. They contain illustrative data, with server actions disabled. No real server, credentials, or personal workspace is shown.
+These PNGs are direct native Windows client-area captures of Wyrmwatch 0.2.3 after removing the informational sidebar footer labels. They show the real desktop app and its local background manager in unique temporary workspaces, with two explicitly configured, stopped server fixtures. The launchers are non-executable placeholder files; no game engine was started. Automatic updates, scheduled backups, launch at login and background operation are off. No real worlds, credentials or personal manager workspace are shown. Visible temporary installation paths belong only to these fixtures.
 
-- `overview-dark.png`: overview in the dark theme.
-- `resources.png`: CPU and memory history after allowing demo samples to accumulate.
-- `automation.png`: update checks, maintenance window, backup frequency, and retention. Automatic updates and scheduled backups are off by default.
-- `overview-light.png`: overview in the light theme.
+- [servers-dark.png](servers-dark.png): Servers workspace in the dark theme.
+- [servers-light.png](servers-light.png): the same stopped-server layout in the light theme.
+- [resources.png](resources.png): the stopped server's resource guidance, with no invented samples.
+- [automation.png](automation.png): game updates, maintenance window, backup frequency and retention, all disabled by default.
 
-To refresh them, run the packaged desktop app with `--demo --data-dir <new-temporary-directory>`, navigate through these pages, and capture the app window. Use 1240 × 850 for the overview and resource views, and 1240 × 960 for automation so the complete form fits. Move the pointer outside the app before capture, and keep the demo label visible. Use Settings to change the theme without saving desktop preferences.
+To refresh them, prepare only disposable profiles under a new temporary root, with separate installation/save and backup folders. Set the fixture workspace's theme, disable close-to-tray and all automatic actions, then run the packaged app with `--data-dir <fixture-workspace>`. Never point it at an existing installation or click Start, Create, Import or Restore. Capture the owned app window after its profiles have been observed as stopped; navigate only to Resources and Automation. Use a 1240 x 960 client area for Servers and Resources, and 1240 x 1100 for Automation so its Save control also fits. Capture dark/light from separate fixture preferences and close each app normally afterward.
 
-Capture the actual interface without altering its content. Review every image for legibility, clipped controls, secrets, and private paths before committing. Update the version caption in the root README when refreshing the images.
+The current captures use native `PrintWindow` on the verified app window, without editing pixels or substituting data in the renderer. Review every image for legibility, clipped controls, secrets and unrelated private paths before committing. Update the version and provenance caption in the root README when refreshing the images. These screenshots do not establish real-game compatibility, screen-reader coverage or every DPI setting.

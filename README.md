@@ -12,7 +12,7 @@ An unofficial community tool, not affiliated with Jagex. Licensed [AGPL-3.0-only
 
 ![Servers workspace with two disposable servers and controls for the selected server](docs/images/servers-dark.png)
 
-*Avalonia-rendered screenshots from the 0.2.2 end-to-end test workspace. These are dummy servers; no live game data is shown.*
+*Native Windows screenshots of Wyrmwatch 0.2.3 with two stopped, disposable server fixtures. No live game data is shown; automatic maintenance is off.*
 
 <details>
 <summary><strong>Light theme</strong></summary>

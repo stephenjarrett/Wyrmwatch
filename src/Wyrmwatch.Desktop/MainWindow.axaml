@@ -21,9 +21,7 @@
         </ListBox>
         <StackPanel Grid.Row="3" Spacing="12" Margin="8,0">
           <Border Height="1" Background="{DynamicResource LineBrush}" Margin="0,0,0,4" />
-          <TextBlock Text="{DynamicResource Ui.1f799d61952d}" Foreground="{DynamicResource WorkspaceStatusBrush}" FontSize="12" />
           <TextBlock Text="{DynamicResource Ui.64d923c20eab}" Classes="muted" FontSize="11" />
-          <TextBlock Text="{DynamicResource Ui.46e84d8edad0}" Classes="muted" FontSize="11" />
         </StackPanel>
       </Grid>
     </Border>
