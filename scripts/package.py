@@ -14,7 +14,7 @@ output = (root / args.output_root).resolve()
 folder = output / args.runtime
 executable = 'Wyrmwatch.exe' if args.runtime == 'win-x64' else 'Wyrmwatch'
 agent = 'agent/Wyrmwatch.Agent.exe' if args.runtime == 'win-x64' else 'agent/Wyrmwatch.Agent'
-required = [executable, agent, 'Wyrmwatch.Core.dll', 'Wyrmwatch.Platform.dll',
+required = [executable, agent, 'Wyrmwatch.Core.dll', 'Wyrmwatch.Platform.dll', 'Avalonia.Fonts.Inter.dll',
             'Wyrmwatch.Agent.dll', 'Wyrmwatch.Agent.runtimeconfig.json', 'retired-package-files.json',
             'LICENSE', 'LICENSE.txt', 'NOTICE',
             'SOURCE.md', 'THIRD-PARTY-NOTICES.md', 'Wyrmwatch-source.zip',

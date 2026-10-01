@@ -51,8 +51,15 @@ public class AgentSmokeTests
             store.Write("schedules.json", new Dictionary<string, ScheduleState> { [fixture.First.Id] = new(NextBackup: DateTimeOffset.UtcNow.AddSeconds(6)) });
         });
         using var second = agent.StartProcess();
-        Assert.True(second.WaitForExit(10000)); Assert.NotEqual(0, second.ExitCode);
-        Assert.True((await agent.Admin.PutAsJsonAsync("admin/preferences", new ManagerSettings { BackgroundMode = true })).IsSuccessStatusCode);
+        var secondOutput = second.StandardOutput.ReadToEndAsync();
+        var secondError = second.StandardError.ReadToEndAsync();
+        var secondExited = second.WaitForExit(10000);
+        if (!secondExited) { second.Kill(); await second.WaitForExitAsync(); } // Only this disposable duplicate agent.
+        Assert.True(secondExited, $"Duplicate fixture agent did not exit: {await secondOutput}\n{await secondError}");
+        Assert.Equal(1, second.ExitCode);
+        Assert.Contains("A background manager already owns this workspace", await secondError);
+        Assert.DoesNotContain("Unhandled exception", await secondError);
+        await EnsureSuccessWithBodyAsync(await agent.Admin.PutAsJsonAsync("admin/preferences", new ManagerSettings { BackgroundMode = true }));
         Assert.True((await agent.Admin.PostAsJsonAsync("admin/attach", new AgentParent(int.MaxValue, "missing"))).IsSuccessStatusCode);
         var backups = new BackupEngine();
         using (var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(25)))
@@ -86,14 +93,14 @@ public class AgentSmokeTests
         await using var agent = await AgentFixture.StartAsync();
         var otherWorld = Path.Combine(agent.Second.SavedPath, "SaveGames", "other.sav");
         Directory.CreateDirectory(Path.GetDirectoryName(otherWorld)!); File.WriteAllText(otherWorld, "other world");
-        (await agent.Admin.PostAsJsonAsync($"api/servers/{agent.First.Id}/actions", new ServerAction("backup"))).EnsureSuccessStatusCode();
+        await EnsureSuccessWithBodyAsync(await agent.Admin.PostAsJsonAsync($"api/servers/{agent.First.Id}/actions", new ServerAction("backup")));
         var backup = Assert.Single(new BackupEngine().List(agent.First));
         var restore = new ServerAction("restore", Path.GetFileName(backup.Path), Confirmation: agent.First.Name);
         File.WriteAllText(agent.Sentinel, "new progress");
         Assert.Equal(HttpStatusCode.BadRequest, (await agent.Admin.PostAsJsonAsync($"api/servers/{agent.First.Id}/actions", restore with { Confirmation = "wrong name" })).StatusCode);
         Assert.Equal("new progress", File.ReadAllText(agent.Sentinel));
-        (await agent.Admin.PostAsJsonAsync($"api/servers/{agent.First.Id}/actions", new ServerAction("verify", Path.GetFileName(backup.Path)))).EnsureSuccessStatusCode();
-        (await agent.Admin.PostAsJsonAsync($"api/servers/{agent.First.Id}/actions", restore)).EnsureSuccessStatusCode();
+        await EnsureSuccessWithBodyAsync(await agent.Admin.PostAsJsonAsync($"api/servers/{agent.First.Id}/actions", new ServerAction("verify", Path.GetFileName(backup.Path))));
+        await EnsureSuccessWithBodyAsync(await agent.Admin.PostAsJsonAsync($"api/servers/{agent.First.Id}/actions", restore));
         Assert.Equal("untouched", File.ReadAllText(agent.Sentinel)); Assert.Equal("other world", File.ReadAllText(otherWorld));
         Assert.Empty(new BackupEngine().List(agent.Second));
         var status = await agent.Admin.GetFromJsonAsync<AgentStatus>("api/status");
@@ -114,6 +121,13 @@ public class AgentSmokeTests
         var imported = await result.Content.ReadFromJsonAsync<ServerProfile>();
         Assert.False(imported!.AutoBackup); Assert.False(imported.AutoUpdate); Assert.Equal(7780, imported.Port);
         Assert.Equal(config, File.ReadAllBytes(profile.ConfigPath)); Assert.Empty(new BackupEngine().List(profile));
+    }
+
+    private static async Task EnsureSuccessWithBodyAsync(HttpResponseMessage response)
+    {
+        using (response)
+            Assert.True(response.IsSuccessStatusCode,
+                $"{response.RequestMessage?.RequestUri}: HTTP {(int)response.StatusCode} {response.StatusCode}; {await response.Content.ReadAsStringAsync()}");
     }
 
     private sealed class AgentFixture : IAsyncDisposable

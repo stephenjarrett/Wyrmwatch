@@ -8,7 +8,7 @@ Coverage includes:
 
 - Continuous empty-server observation, unknown-player deferral, failed updates, and persisted schedules.
 - Verified backups, cancellation, locked source files, retention after failure, restore staging, and rollback after a folder-swap failure.
-- Shared-port saved connections, overlapping-folder protection, read-only import with external saves, reconnection to previous backups, and rejection before unsafe configuration writes.
+- Shared-port saved connections, overlapping-folder protection, existing-profile/backend import compatibility with external saves, reconnection to previous backups, and rejection before unsafe configuration writes.
 - Switching between two disposable servers on the same port only after shutdown, reloaded ownership, and backup/restore isolation on both operating systems.
 - Selecting another connection without starting it, refusing starts while another saved server is running or unknown, disconnected-server checks, and maintenance restart enforcement.
 - An active operation blocking another action, schedule execution, connection edits, and agent shutdown.
@@ -22,9 +22,31 @@ Coverage includes:
 
 The desktop suite drives mouse clicks and text input against the actual Avalonia controls, connects `AgentClient` to the production loopback HTTP routes, and checks persisted settings and file contents. Dummy Steam and game adapters prevent real downloads or launches. Fixtures are isolated temporary folders.
 
-The flows cover creation and required owner validation, occupied destinations, cancellation, interrupted-download retry, read-only import, changed-port refusal and import retry, editing connection and game settings, selecting two saved servers, refusing a second simultaneous start, stop controls, verified backups, restore, removal from the list, and reopening the saved workspace. Removal preserves installation, configuration, worlds and backups. The surviving server's world is checked after edits, restores and removal of the other server.
+The current front door provides Create a server and Import a world into separate managed installations. Fixture flows exercise owner/source confirmation, source review, occupied destinations, cancellation, interrupted-download retry, source preservation and changed-source refusal, settings edits, selection between saved servers, single-server start enforcement, graceful stop, backup/restore, disconnect and workspace reopen. Existing-profile/backend import compatibility remains covered separately. Disconnect preserves installation, configuration, worlds and backups.
 
-The suite has 88 core/agent checks and 15 desktop checks. Desktop tests run serially because Avalonia theme resources and desktop startup options are shared. The same suites run on Windows and Ubuntu in CI. Set `WYRM_TEST_SCREENSHOTS` to an output directory to capture the rendered UI while exercising these flows.
+Desktop tests run serially because Avalonia theme resources and desktop startup options are shared. The same suites run on Windows and Ubuntu in CI. Set `WYRM_TEST_SCREENSHOTS` to an output directory to capture the rendered UI while exercising these flows.
+
+## World-import fixtures
+
+`WorldImportTests` defines synthetic SAVE/SPUD containers in disposable temporary folders. Its cases cover read-only inspection and deterministic review tokens, exact single-file copy without companions, invalid/empty/truncated containers, rejection of GVAS input-settings files, bounded unknown extension chunks, source changes even with unchanged length/timestamp, changes after copying, locked sources, cancellation, occupied destinations, shared source/destination ancestors, and substituted review fields. These fixtures validate top-level container framing and copy integrity, not real Dragonwilds world contents or game-version compatibility.
+
+Provisioning fixtures use dummy Steam/runtime adapters to exercise source-writer acknowledgement and known-server stopped checks, fresh managed configuration, staging failure/retry, source preservation, and no registration until setup succeeds. Existing configuration and character/backup files are not imported with a world. Native file selection, real game loading, multiplayer progression and compatibility with a live world require separate validation.
+
+These descriptions identify regression coverage in the source tree. Test results and platform execution must be checked in the CI or local validation log for the exact revision; adding a fixture is not a claim that an unrun platform check passed.
+
+Prepared-setup recovery writes a bounded receipt and workspace ownership record before publishing a new installation. Explicit wizard review verifies that receipt against the launcher's hash and complete Saved inventory; resume rechecks the review token under operation leases and registers the stopped profile without downloading, rewriting or copying game data. Candidate discovery uses the workspace registry and the standard managed parent's immediate children. A marker in an unknown folder is insufficient proof. Fixtures cover interrupted profile registration, reopening, changed/missing original source, tampered/unknown setups, connection collisions and no duplicate registration.
+
+## Restore and ownership safeguards (0.2.3)
+
+Connected and disconnected profiles reserve their installation and save-data paths. Reconnecting the same installation keeps its identity; changing its installation, launcher or save folder requires a verified stopped server and no pending restore. Scheduled work uses the same overlap validation as manual actions. Operation leases cover both the installation and the canonical Saved tree. Exact matching paths exclude simultaneous commands across workspaces; nested roots have different lock keys, and the lock does not last for a running server's lifetime. Use one workspace for an installation/save tree. These leases do not discover a writer managed by another workspace or an unrelated external server.
+
+Restore writes and flushes a journal before swapping folders. An incomplete or unreadable journal blocks starts and file-changing operations. The Backups page exposes explicit recovery after the server is confirmed stopped. Recovery retains displaced files and verifies the original file inventory and SHA-256 hashes before unblocking; a committed restore is likewise verified before completing journal cleanup. Invalid or damaged recovery state stays blocked for investigation. Graceful Stop remains available during recovery without trying to back up an incomplete tree.
+
+Valid archives can restore into missing or empty Saved folders. Archives containing SaveGames restore the complete world/configuration coverage; newer files absent from the archive are retained in the recovery directory. Configuration-only archives replace Config and explicitly preserve existing SaveGames. Confirmation and recovery-point descriptions show that difference.
+
+Regression coverage includes disconnected save overlap and canonical aliases, rejected manual/scheduled writes, running-profile ownership edits, shared Saved operation leases, every restore swap/commit checkpoint, repeated interruptions during rollback, damaged journals/files, missing/empty targets and large recovery inventories. Checkpoint exceptions emulate abrupt interruption and reopen the persisted journal with fresh service instances; they are not physical power-loss tests.
+
+Windows launcher tests use a dummy launcher that immediately hands off to a shipping child. A non-terminating kernel job preserves ownership through parent exit and manager reopen; unrelated later processes at the same path remain unowned. Linux fixtures cover shell exec and child handoff through a separately owned session. All process tests remain confined to disposable fixture executables.
 
 Headless end-to-end tests exercise the application controls and API, including actual text-input and mouse events. They do not verify Windows/Linux native folder-picker dialogs, Steam network downloads, or game-engine save compatibility. Native Windows mouse input and screen capture were blocked by the environment; those checks remain explicitly unverified.
 

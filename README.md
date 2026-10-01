@@ -6,13 +6,13 @@
 
 A focused desktop manager for RuneScape: Dragonwilds dedicated servers. Built in C# on .NET 10 and Avalonia, with Windows and Linux interfaces from one codebase.
 
-[**Download for Windows & Linux**](https://github.com/stephenjarrett/Wyrmwatch/releases/latest) · [Installation guide](docs/installing.md) · [Import an existing server](#use-an-existing-server) · [Contribute](CONTRIBUTING.md)
+[**Download for Windows & Linux**](https://github.com/stephenjarrett/Wyrmwatch/releases/latest) · [Installation guide](docs/installing.md) · [Import a world](#import-a-world) · [Contribute](CONTRIBUTING.md)
 
 An unofficial community tool, not affiliated with Jagex. Licensed [AGPL-3.0-only](LICENSE).
 
 ![Servers workspace with two disposable servers and controls for the selected server](docs/images/servers-dark.png)
 
-*Avalonia-rendered screenshots from the 0.2.2 end-to-end test workspace. These are dummy servers; no live game data is shown.*
+*Native Windows screenshots of Wyrmwatch 0.2.3 with two stopped, disposable server fixtures. No live game data is shown; automatic maintenance is off.*
 
 <details>
 <summary><strong>Light theme</strong></summary>
@@ -24,13 +24,13 @@ An unofficial community tool, not affiliated with Jagex. Licensed [AGPL-3.0-only
 ## Features
 
 - Servers workspace with a saved-server list, CPU/memory graphs, free disk space, dark/light/system themes.
-- Import existing installations in place with a save-folder review; choose from saved server connections and run one at a time.
-- Create servers with a guided setup: suggested folders, owner ID help, generated admin password, and a review before the SteamCMD download.
+- Create a fresh world or import one world .sav into a new managed server; choose from saved servers and run one at a time.
+- Guided setup with standard managed locations, owner ID help, generated admin password, and a review before the SteamCMD download.
 - Start, graceful stop, restart, and per-installation process tracking.
 - Compare installed and available Steam builds before updating.
 - Automatic updates wait for a continuously observed empty server for 60 seconds. Unknown player activity defers maintenance. Optional daily maintenance window.
 - Scheduled and manual ZIP backups of the selected Saved/SaveGames and Saved/Config folders, SHA-256 verification, and per-profile retention.
-- Guided restore: verify, back up the current state, stage files, retain previous folders, and leave the server stopped.
+- Guided restore with explicit world/configuration coverage, retained previous folders, interrupted-restore recovery, and start blocking until recovery is verified.
 - Persisted operation history, a filterable game-log viewer, read-only diagnostics, and official setup help.
 - Launch at login, Windows close-to-tray, and an opt-in background manager that continues schedules after the desktop closes.
 - Optional Windows service and Linux user-service setup for unattended operation.
@@ -38,24 +38,35 @@ An unofficial community tool, not affiliated with Jagex. Licensed [AGPL-3.0-only
 - Import/export community language packs with English fallback, without replacing focused forms.
 - Disconnect saved server connections without deleting their installation, saves, or backups.
 
-Automatic game updates, scheduled backups, and background operation start **off**. Opening the app never adopts, installs, launches, or stops an unconfigured game server. Remove from list disconnects a server without deleting its files.
+Automatic game updates, scheduled backups, and background operation start **off**. Opening the app never adopts, installs, launches, or stops an unconfigured game server. Disconnect preserves the installation, saves and backups.
 
-## Use an existing server
+## Set up a managed server
 
-1. Choose **Import existing** on Servers. Paste its installation folder into the dialog or use **Choose server folder…**. You can also paste the full launcher path (`RSDragonwildsServer.exe` on Windows, the server launch script on Linux) directly into the text field. Click **Review folders**; the launcher is read, never executed.
-2. Review the detected **save-data folder**, listed world saves, and backup destination. The default is `RSDragonwilds/Saved` inside the installation. For a server that already saves elsewhere, expand **Advanced save location**, enable **Use a different existing Saved folder**, and locate its actual folder. This selects existing data; it does not relocate files or change where the game writes them. Wyrmwatch reads the existing server name and port from that folder's configuration.
-3. Confirm the reviewed Saved folder and choose **Import server**, then create a manual backup. Importing only saves a connection: it does not move files, rewrite game configuration, install, launch, or stop a server. Automatic updates and backups are disabled on import, including reconnection.
-4. Enable schedules when ready. Run only one server-management application with automatic maintenance enabled for the installation.
+### Create a server
 
-For a fresh world, choose **Create Server** on Servers. The wizard suggests server/world names, UDP port 7777, separate install and backup folders, and a generated admin password. Paste your Dragonwilds Player ID from the bottom of the in-game Settings menu; optionally set a world password for your players. You can select a populated parent such as `C:\Games`: Wyrmwatch uses a new dedicated child folder and rejects an occupied destination. Saves stay in that server's `RSDragonwilds/Saved` folder automatically; no separate save-location choice is required. Installation and save paths are read-only in Server settings. Review all paths and confirm **Create Server** to download and configure the server. It stays stopped until you press **Start**. Automatic updates and scheduled backups remain off until you enable them.
+Choose **Create a server** on Servers. Enter the server/world names and your Dragonwilds Player ID from the bottom of the in-game Settings menu. Review UDP port 7777, the generated admin password, and the optional world password. Wyrmwatch proposes a storage name and keeps new installations under your home folder's `WyrmwatchServers`, with backups separately under `WyrmwatchBackups`. The wizard shows complete installation, save-data and backup paths before confirmation. It downloads and configures a fresh dedicated server, then leaves it stopped; press **Start** when ready. The game creates the fresh world on first start.
+
+### Import a world
+
+1. Close the game or stop the server that writes the source world, then choose **Import a world**. Select the world's `.sav` file and confirm its writer is stopped. Local Windows worlds normally live in `%LOCALAPPDATA%\RSDragonwilds\Saved\SaveGames`.
+2. Enter the new server's name, owner Player ID, port and passwords. Review the managed locations and source file. Import downloads a fresh dedicated server and copies exactly the reviewed `.sav`; the original remains in place. Character files, configuration, neighbouring backups and other worlds are not copied.
+3. Confirm import. Source length, modification time and SHA-256 are checked again before and after copying, and copied bytes are verified. The new server remains stopped with schedules off until you choose to start it.
+
+Import preserves the world's embedded name. **Fallback world name** applies only if the game later creates a fresh world; it does not rename the imported world. Server name identifies the new server connection. Your supplied settings govern its owner and access: the admin password grants game-side administration, and the world password supersedes any password stored in the world. A blank world password permits anyone who can reach the server to join. Keep passwords private.
+
+World inspection checks bounded SAVE/SPUD container framing. It does not certify game-version compatibility, world contents, player progression, or successful game loading. Follow the [official world-transfer guide](https://runescapedragonwilds.help.jagex.com/hc/en-gb/articles/45365343055249-Dedicated-Servers-How-to-Guide) and keep an independent backup before playing.
+
+If setup files finished publishing but the connection could not be saved, reopen the same workspace and choose the matching Create/Import wizard. Select the prepared setup offered there, review its verified original settings and choose **Resume prepared setup**. A workspace-owned receipt must match the installation, launcher and complete saved-data inventory. Resume only registers the stopped connection; it does not download again, rewrite settings or copy the world again. The already-copied world can be resumed even if its original source has changed or disappeared. Unknown folders, altered files and conflicting saved profiles remain blocked.
+
+Cancelling before confirmation changes no files. A failure during preparation retains its separate `.setup-...` staging folder and reports its location; a saved connection is added only after successful provisioning. Review a changed source again, then retry with the same storage name while its final destination remains unused, or choose another. Existing destination folders are never overwritten. Previously saved profiles, including external save locations, remain supported; installation and save paths are read-only in Server settings.
 
 A server started elsewhere can be monitored and backed up. Wyrmwatch will not send it shutdown signals without a recorded owned process identity. Stop it using its existing controls at a convenient time, then start it through Wyrmwatch for managed shutdown. No forced-stop fallback is enabled.
 
 Keep as many saved server connections as needed, and choose one from the list. Selecting an entry changes the view; it does not start it or stop the current server. Stop the running server before starting another. Desktop actions and maintenance restarts all check the other saved connections immediately before launching; unknown process status blocks a start. Disconnecting a running connection does not bypass this check. These safeguards apply to connections known to this workspace, including disconnected entries; Wyrmwatch does not control other manager workspaces or unconfigured installations.
 
-Saved servers may reuse the same game port because Wyrmwatch runs one at a time. Keep separate installation and save-data folders for each connection. Overlapping game/save paths remain blocked, and backups must stay outside every connected server's game/save folders. A common external backup destination is allowed because archives are scoped to their server. Maintenance actions run one at a time across the manager, and updating a stopped server leaves it stopped.
+Saved servers may reuse the same game port because Wyrmwatch runs one at a time. Keep separate installation and save-data folders for each connection. Overlapping game/save paths remain blocked, and backups must stay outside every connected or disconnected server's game/save folders. A common external backup destination is allowed because archives are scoped to their server. Maintenance actions run one at a time across the manager, and updating a stopped server leaves it stopped.
 
-Config edits require the server to be stopped, preserve unrelated sections/admin lists, and retain the previous file. Read the [official Dragonwilds server guide](https://runescapedragonwilds.help.jagex.com/hc/en-gb/articles/45365343055249-Dedicated-Servers-How-to-Guide) for owner IDs, networking, world saves, and game-side administration. The game chooses the newest save; restore moves the old active save folder into a retained recovery directory so newer saves do not override the selected recovery point.
+Config edits require the server to be stopped, preserve unrelated sections/admin lists, and retain the previous file. Read the [official Dragonwilds server guide](https://runescapedragonwilds.help.jagex.com/hc/en-gb/articles/45365343055249-Dedicated-Servers-How-to-Guide) for owner IDs, networking, world saves, and game-side administration. The game chooses the newest save. Backups identifies each recovery point's coverage: a world restore replaces SaveGames and Config, retaining newer files separately; a configuration-only restore preserves existing worlds. An interrupted restore blocks starts and file-changing actions until explicit recovery on Backups verifies the retained state. Keep the server stopped during recovery; unverifiable state remains blocked with its files preserved.
 
 ## Run
 
