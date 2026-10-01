@@ -37,12 +37,14 @@ public sealed class ServerCreationPlan
             throw new ArgumentException("Paste your Dragonwilds Player ID from the bottom of the in-game Settings menu.");
         _ = GameConfiguration.Merge("", Configuration);
         ServerConnections.Validate(Profile, connections);
+        if (connections.Any(p => string.Equals(p.Name, Profile.Name, StringComparison.OrdinalIgnoreCase)))
+            throw new ArgumentException("A server with this name is already saved. Choose a different name for the new server.");
         foreach (var path in new[] { Profile.InstallPath, Profile.BackupPath })
             for (var current = path; current is not null; current = Path.GetDirectoryName(current))
                 if (File.Exists(current)) throw new IOException("A file occupies this folder path: " + current);
         if (Directory.Exists(Profile.InstallPath) && Directory.EnumerateFileSystemEntries(Profile.InstallPath).Any())
             throw new IOException("This server folder already contains files:\n" + Profile.InstallPath
-                + "\n\nChoose a different folder name. To use an existing server, cancel and choose Import existing server. No files were changed.");
+                + "\n\nChoose a different server folder name. Create and Import a world always use a new installation. No files were changed.");
         if (Directory.Exists(Profile.InstallPath)) throw new IOException("This folder already exists. Choose a new child folder name so setup can finish without replacing anything.");
     }
 

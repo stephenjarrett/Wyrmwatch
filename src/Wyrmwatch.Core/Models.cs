@@ -55,6 +55,7 @@ public sealed record ManagerSettings
     public bool CloseToTray { get; init; } = true;
     public bool LaunchAtLogin { get; init; }
     public bool BackgroundMode { get; init; }
+    public bool ReduceMotion { get; init; } = true;
     public string Language { get; init; } = "en";
 }
 

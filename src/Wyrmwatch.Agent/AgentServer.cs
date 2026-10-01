@@ -48,6 +48,10 @@ public static class AgentServer
         app.MapPut("/admin/profiles", async (ServerProfile profile) => await manager.SaveProfileAsync(profile));
         app.MapPost("/admin/import", async (ServerProfile profile) => await manager.ImportProfileAsync(profile));
         app.MapPost("/admin/create", async (CreateServerRequest request) => await manager.CreateServerAsync(request));
+        app.MapPost("/admin/import-world", async (WorldImportRequest request) => await manager.ImportWorldAsync(request));
+        app.MapPost("/admin/resume-setup", async (ResumeSetupRequest request, CancellationToken token) => await manager.ResumeSetupAsync(request, token));
+        app.MapGet("/admin/prepared-setups", () => manager.PreparedSetups());
+        app.MapPost("/admin/review-setup", async (ReviewSetupRequest request, CancellationToken token) => await manager.ReviewSetupAsync(request, token));
         app.MapDelete("/admin/profiles/{id}", async (string id) => { await manager.RemoveProfileAsync(id); return Results.Ok(); });
         app.MapPost("/admin/attach", (AgentParent identity) => { manager.Attach(identity); return Results.Ok(); });
         app.MapPost("/admin/shutdown", () =>
