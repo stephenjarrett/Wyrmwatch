@@ -21,6 +21,7 @@ CHECKS = {"build (windows-latest, win-x64)", "build (ubuntu-latest, linux-x64)"}
 PACKAGES = {"package (windows-latest, win-x64)", "package (ubuntu-latest, linux-x64)"}
 MAX_ASSET = 256 * 1024 * 1024
 MAX_ARTIFACT = 512 * 1024 * 1024
+HOLDS_FILE = Path(__file__).resolve().parents[1] / "docs/releases/publication-holds.json"
 
 
 class ReleaseError(RuntimeError):
@@ -30,6 +31,39 @@ class ReleaseError(RuntimeError):
 def require(condition, message):
     if not condition:
         raise ReleaseError(message)
+
+
+def ensure_release_allowed(version):
+    # Always use policy beside the trusted orchestration, never the older tag's
+    # source checkout or receipt. A prior approval cannot override a later hold.
+    def unique_object(pairs):
+        result = {}
+        for key, value in pairs:
+            require(key not in result, "Duplicate key in publication hold policy")
+            result[key] = value
+        return result
+    try:
+        require(HOLDS_FILE.stat().st_size <= 64 * 1024, "Oversized publication hold policy")
+        data = HOLDS_FILE.read_bytes()
+        require(len(data) <= 64 * 1024, "Oversized publication hold policy")
+        policy = json.loads(data.decode("utf-8"), object_pairs_hook=unique_object)
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        raise ReleaseError("Cannot read publication hold policy; all release writes are blocked") from error
+    require(isinstance(policy, dict) and set(policy) == {"schema", "held_versions"}
+            and type(policy["schema"]) is int and policy["schema"] == 1
+            and isinstance(policy["held_versions"], dict), "Invalid publication hold policy")
+    for held, entry in policy["held_versions"].items():
+        require(re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", held)
+                and isinstance(entry, dict) and set(entry) == {"reason", "superseded_by"}
+                and isinstance(entry["reason"], str) and 0 < len(entry["reason"].strip()) <= 2000
+                and isinstance(entry["superseded_by"], str)
+                and re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", entry["superseded_by"]),
+                "Invalid held-version entry")
+        require(tuple(map(int, entry["superseded_by"].split("."))) > tuple(map(int, held.split("."))),
+                "Held version must name a newer immutable candidate")
+    hold = policy["held_versions"].get(version)
+    if hold is not None:
+        raise ReleaseError(f"v{version} is held: {hold['reason']} Use a new immutable v{hold['superseded_by']} candidate.")
 
 
 def sha(data):
@@ -137,6 +171,9 @@ class Manager:
         self.root = f"repos/{repository}"
         self.tag = "v" + version
 
+    def ensure_release_allowed(self):
+        ensure_release_allowed(self.version)
+
     def checked_run(self, run_id, packages=False):
         run = self.api.api(f"{self.root}/actions/runs/{int(run_id)}")
         expected_branch = self.tag if packages else "master"
@@ -206,7 +243,9 @@ class Manager:
         require(self.tag_commit() == self.head, "Approved tag does not point at the tested commit")
 
     def prepare(self, run_id, _source_guard=None):
+        self.ensure_release_allowed()
         def guard():
+            self.ensure_release_allowed()
             if _source_guard is None:
                 self.current_master()
             else:
@@ -278,6 +317,7 @@ class Manager:
         return f"Verified draft {release['id']} ready at {self.head}; approve its exact commit with {self.tag}"
 
     def publish(self, run_id, approved_tag, _before_publish=None):
+        self.ensure_release_allowed()
         require(approved_tag == self.tag, "Approved tag must match the project version")
         self.checked_run(run_id, packages=True)
         self.approved_commit()
@@ -294,6 +334,7 @@ class Manager:
         self.owned_draft(release["id"], metadata)
         if _before_publish is not None:
             _before_publish()
+        self.ensure_release_allowed()
         metadata = dict(metadata, phase="published")
         published = self.api.api(f"{self.root}/releases/{release['id']}", "PATCH",
                                 {"tag_name": self.tag, "target_commitish": self.head,
@@ -305,6 +346,7 @@ class Manager:
         return "Published verified " + self.tag + " from " + self.head
 
     def recover(self, run_id, approved_tag, verification_run_id, verified_head):
+        self.ensure_release_allowed()
         # Recovery runs reviewed orchestration from current green master, but the
         # release source/assets remain pinned to the original approved tag.
         verifier = Manager(self.api, self.repository, self.version, verified_head, self.notes)

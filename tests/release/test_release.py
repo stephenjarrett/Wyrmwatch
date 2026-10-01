@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[2]
 SPEC = importlib.util.spec_from_file_location("manage_release", ROOT / "scripts/manage-release.py")
 release = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(release)
-REPOSITORY, HEAD, VERSION = "fixture/Wyrmwatch", "a" * 40, "0.2.3"
+REPOSITORY, HEAD, VERSION = "fixture/Wyrmwatch", "a" * 40, "0.2.4"
 
 
 def archive(files):
@@ -242,7 +242,7 @@ class ReleaseTests(unittest.TestCase):
         unrelated = copy.deepcopy(self.api.release)
         unrelated["tag_name"] = "untagged-e544df8a98720da5ed9b"
         unrelated["name"] = "Wyrmwatch v9.9.9"
-        unrelated["body"] = unrelated["body"].replace('"version": "0.2.3"', '"version": "9.9.9"')
+        unrelated["body"] = unrelated["body"].replace(f'"version": "{VERSION}"', '"version": "9.9.9"')
         unrelated["id"] = 11
         self.api.extra_releases.append(unrelated)
         self.manager.publish(2, "v" + VERSION)

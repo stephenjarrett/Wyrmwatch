@@ -7,7 +7,7 @@ namespace Wyrmwatch.Agent;
 
 public sealed class ManagerHost
 {
-    public const string Version = "0.2.3";
+    public const string Version = "0.2.4";
     private readonly JsonStore store;
     private readonly IServerRuntime runtime;
     private readonly ISteamClient steam;

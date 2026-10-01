@@ -89,6 +89,7 @@ class Handoff:
         return policy.Manager(self.api, self.manager.repository, self.manager.version, head, notes)
 
     def guard(self, verification_run):
+        self.manager.ensure_release_allowed()
         self.manager.checked_run(verification_run)
         self.manager.current_master()
         releases = self.api.api(f"{self.root}/releases?per_page=100")
@@ -101,6 +102,7 @@ class Handoff:
                                "A newer version is published; refuse to supersede it")
 
     def run(self, event_run_id=None):
+        self.manager.ensure_release_allowed()
         self.manager.current_master()
         trigger = self.trigger(event_run_id) if event_run_id is not None else None
         if event_run_id is not None and trigger is None:

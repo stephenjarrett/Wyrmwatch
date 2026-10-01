@@ -270,7 +270,7 @@ class HandoffTests(unittest.TestCase):
                 self.assertEqual(writes, len(self.api.mutations))
 
     def test_newer_public_release_is_not_superseded(self):
-        self.api.extra_releases.append({"tag_name": "v0.2.4", "draft": False, "prerelease": False})
+        self.api.extra_releases.append({"tag_name": "v0.2.5", "draft": False, "prerelease": False})
         with self.assertRaises(policy.ReleaseError): self.handoff.run()
         self.assertEqual([], self.api.mutations)
 
