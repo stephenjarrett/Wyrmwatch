@@ -6,6 +6,7 @@ using Wyrmwatch.Core;
 
 namespace Wyrmwatch.Core.Tests;
 
+[Collection(NativeProcessCollection.Name)]
 public class AgentSmokeTests
 {
     [Fact]
@@ -63,7 +64,18 @@ public class AgentSmokeTests
         Assert.True((await agent.Admin.PostAsJsonAsync("admin/attach", new AgentParent(int.MaxValue, "missing"))).IsSuccessStatusCode);
         var backups = new BackupEngine();
         using (var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(25)))
-            while (backups.List(agent.First).Count == 0) await Task.Delay(200, deadline.Token);
+            try
+            {
+                while (backups.List(agent.First).Count == 0) await Task.Delay(200, deadline.Token);
+            }
+            catch (OperationCanceledException) when (deadline.IsCancellationRequested)
+            {
+                var activity = Path.Combine(agent.Root, "activity.log");
+                var schedules = Path.Combine(agent.Root, "schedules.json");
+                Assert.Fail($"Scheduled backup timed out; agent exited={agent.Process.HasExited}. " +
+                    $"Schedules: {(File.Exists(schedules) ? File.ReadAllText(schedules) : "missing")}\n" +
+                    $"Activity: {(File.Exists(activity) ? File.ReadAllText(activity) : "missing")}");
+            }
         Assert.False(agent.Process.HasExited); Assert.True((await agent.Admin.GetFromJsonAsync<AgentStatus>("api/status"))!.Background);
         var backup = Assert.Single(backups.List(agent.First)); await backups.VerifyAsync(backup.Path, agent.First);
         DateTimeOffset? next;

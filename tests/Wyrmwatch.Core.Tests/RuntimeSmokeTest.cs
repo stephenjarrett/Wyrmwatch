@@ -7,6 +7,7 @@ using Wyrmwatch.Agent;
 
 namespace Wyrmwatch.Core.Tests;
 
+[Collection(NativeProcessCollection.Name)]
 public class RuntimeSmokeTest
 {
     private static IServerRuntime Runtime(string root) => OperatingSystem.IsWindows()

@@ -5,6 +5,7 @@ using Wyrmwatch.Platform;
 
 namespace Wyrmwatch.Core.Tests;
 
+[Collection(NativeProcessCollection.Name)]
 public class LinuxInspectionRaceTests
 {
     [Theory]

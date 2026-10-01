@@ -1,0 +1,9 @@
+{
+  "schema": 1,
+  "held_versions": {
+    "0.2.3": {
+      "reason": "This candidate lacks the production safeguard against disappearing previously loaded preferences shutting down the background manager. Preserve its tag, draft and assets; it must remain unpublished.",
+      "superseded_by": "0.2.4"
+    }
+  }
+}

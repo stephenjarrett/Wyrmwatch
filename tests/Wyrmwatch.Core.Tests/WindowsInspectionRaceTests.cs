@@ -7,6 +7,7 @@ using Wyrmwatch.Platform;
 
 namespace Wyrmwatch.Core.Tests;
 
+[Collection(NativeProcessCollection.Name)]
 public class WindowsInspectionRaceTests
 {
     [Theory]
@@ -23,8 +24,10 @@ public class WindowsInspectionRaceTests
         if (!OperatingSystem.IsWindows()) return;
         await using var fixture = await InspectionFixture.StartAsync();
         var reached = false;
+        var observations = new List<string>();
         var runtime = new WindowsRuntime(new JsonStore(Path.Combine(fixture.Root, "workspace")), "unused")
         {
+            InspectionFailureObserved = (id, error, exited) => observations.Add($"PID {id}, actor={id == fixture.Actor.Id}, {error.GetType().Name}, confirmedExit={exited}"),
             BeforeProcessInspection = process =>
             {
                 if (process.Id != fixture.Actor.Id) return;
@@ -38,10 +41,39 @@ public class WindowsInspectionRaceTests
             }
         };
         var state = await runtime.InspectAsync(fixture.UnrelatedProfile);
-        Assert.True(reached); Assert.False(state.Running); Assert.Equal(accessible, state.Accessible);
+        Assert.True(reached); Assert.False(state.Running);
+        Assert.True(accessible == state.Accessible, $"Expected Accessible={accessible}, actual={state.Accessible}. " + string.Join("; ", observations));
         Assert.Empty(state.Processes);
         if (!fault.StartsWith("exit", StringComparison.Ordinal)) Assert.False(fixture.Actor.HasExited);
         Assert.False(File.Exists(Path.Combine(fixture.Root, "workspace", "owned-processes.json")));
+    }
+
+    [Fact]
+    public async Task ConfirmedExitCannotHideAnotherUnreadableLiveActor()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        await using var exiting = await InspectionFixture.StartAsync();
+        await using var unreadable = await InspectionFixture.StartAsync();
+        var observations = new List<(int Id, bool Exited)>();
+        var runtime = new WindowsRuntime(new JsonStore(Path.Combine(exiting.Root, "workspace")), "unused")
+        {
+            BeforeProcessInspection = process =>
+            {
+                if (process.Id == exiting.Actor.Id)
+                {
+                    exiting.Actor.Kill(); exiting.Actor.WaitForExit();
+                    throw new IOException("Disposable exited actor.");
+                }
+                if (process.Id == unreadable.Actor.Id) throw new Win32Exception(5, "Disposable live unreadable actor.");
+            },
+            InspectionFailureObserved = (id, _, exited) => observations.Add((id, exited))
+        };
+        var state = await runtime.InspectAsync(exiting.UnrelatedProfile);
+        Assert.Contains((exiting.Actor.Id, true), observations);
+        Assert.Contains((unreadable.Actor.Id, false), observations);
+        Assert.False(state.Accessible); Assert.False(state.Running); Assert.Null(state.Players);
+        Assert.False(unreadable.Actor.HasExited);
+        Assert.False(File.Exists(Path.Combine(exiting.Root, "workspace", "owned-processes.json")));
     }
 
     [Fact]
