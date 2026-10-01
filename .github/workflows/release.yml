@@ -65,17 +65,3 @@ jobs:
             dist/Wyrmwatch-*.deb
             dist/Wyrmwatch-*.sha256
           if-no-files-found: error
-  publish:
-    needs: package
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      actions: read
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - name: Publish the verified matching master draft
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: python scripts/manage-release.py publish --run-id "$GITHUB_RUN_ID"
