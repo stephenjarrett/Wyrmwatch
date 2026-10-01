@@ -17,7 +17,7 @@ namespace Wyrmwatch.Desktop;
 public partial class MainWindow : Window
 {
     private readonly WorkspaceModel model = new();
-    private readonly JsonStore store = new(Program.DataDirectory);
+    private readonly JsonStore store;
     private readonly BackupEngine backups = new();
     private readonly CancellationTokenSource closing = new();
     private readonly Queue<string> activity = new();
@@ -28,25 +28,28 @@ public partial class MainWindow : Window
     private bool ready, exitRequested, changingProfile, agentTransition;
     private string historyFingerprint = "";
 
-    public MainWindow()
+    public MainWindow() : this(null) { }
+    internal MainWindow(AgentClient? connection)
     {
+        store = new(Program.DataDirectory);
         InitializeComponent(); DataContext = model;
+        if (Program.Demo) Title = "Wyrmwatch · Demo preview";
         MemoryChart.Color = Color.Parse("#88C8AD"); MemoryChart.Maximum = 1024;
         try
         {
             settings = store.Read("settings.json", () => new ManagerSettings());
             if (Program.ApplyStartup && settings.LaunchAtLogin) DesktopIntegration.SetStartup(true);
             steam = new SteamClient(Path.Combine(Program.DataDirectory, "tools"));
-            service = new(Program.DataDirectory);
+            service = connection ?? new(Program.DataDirectory);
             service.Log += Log;
             service.Changed += () => Dispatcher.UIThread.Post(() => { model.Busy = service.Busy; RefreshHistory(); });
             if (Program.Demo) settings = new() { Servers = [new() { Name = "The Ashen Reach", InstallPath = Path.Combine(Program.DataDirectory, "demo-server"), BackupPath = Path.Combine(Program.DataDirectory, "demo-backups") }] };
             foreach (var profile in settings.Servers) model.Profiles.Add(profile);
             model.SelectedProfile = model.Profiles.FirstOrDefault(p => p.Id == settings.SelectedServerId) ?? model.Profiles.FirstOrDefault();
             ThemePicker.SelectedIndex = settings.Theme switch { "Light" => 1, "System" => 2, _ => 0 };
-            ApplyTheme(); CloseToTray.IsChecked = settings.CloseToTray; LaunchAtLogin.IsChecked = settings.LaunchAtLogin; KeepBackground.IsChecked = settings.BackgroundMode; AutoAppChecks.IsChecked = settings.CheckAppUpdates;
+            ApplyTheme(); CloseToTray.IsChecked = settings.CloseToTray; LaunchAtLogin.IsChecked = settings.LaunchAtLogin; KeepBackground.IsChecked = settings.BackgroundMode;
             LanguagePicker.ItemsSource = new[] { Localization.English }; LanguagePicker.SelectedIndex = 0;
-            ready = true; if (!Program.HeadlessTest) SetupTray(); LoadProfile(); RefreshHistory();
+            ready = true; if (!Program.HeadlessTest) SetupTray(); LoadProfile(); RefreshHistory(); Navigate(Navigation, new SelectionChangedEventArgs(ListBox.SelectionChangedEvent, Array.Empty<object>(), Array.Empty<object>()));
             Opened += async (_, _) => { try { if (Program.Minimized) WindowState = WindowState.Minimized; if (!Program.HeadlessTest) { await LoadLanguagesAsync(settings.Language); await PollLoopAsync(); } } catch (OperationCanceledException) { } };
             Closing += OnClosing;
             Closed += (_, _) => { closing.Cancel(); tray?.Dispose(); };
@@ -60,24 +63,27 @@ public partial class MainWindow : Window
     }
     private void Navigate(object? sender, SelectionChangedEventArgs e)
     {
-        if (OverviewPage is null) return;
-        Control[] pages = [OverviewPage, ResourcesPage, AutomationPage, BackupsPage, ActivityPage, SettingsPage, HelpPage, RemotePage, UpdatesPage];
+        if (ServersPage is null) return;
+        Control[] pages = [ServersPage, ServerSettingsPage, ResourcesPage, AutomationPage, BackupsPage, ActivityPage, SettingsPage, HelpPage, UpdatesPage];
         var index = Navigation.SelectedIndex; if (index < 0 || index >= pages.Length) return;
         for (var i = 0; i < pages.Length; i++) pages[i].IsVisible = i == index;
-        string[] titles = ["Your server, at a glance.", "Room to breathe.", "Set it. Let it run.", "A way back, always.", "Every step, accounted for.", "Make yourself at home.", "A little guidance.", "Share the controls.", "Keep Wyrmwatch current."];
-        string[] descriptions = ["A quieter way to keep your world running.", "Live CPU, memory, and storage for your selected server.", "Thoughtful maintenance, around your players.", "Your saves and settings, backed up and verified.", "Updates, backups, and the details in between.", "Your appearance, connections, and game configuration.", "Setup help and a closer look under the hood.", "Access for the right people, with the right permissions.", "Verified downloads, with your previous version kept close."];
-        model.PageTitle = Localization.Text(titles[index]); model.PageSubtitle = Localization.Text(descriptions[index]);
-        if (index == 7 && ready && !Program.Demo && !Program.HeadlessTest) _ = LoadRemoteAsync();
-        if (index != 7 && IssuedSecret is not null) IssuedSecret.Text = "";
+        if (PageScroll is not null) PageScroll.Offset = default;
+        string[] titles = ["Servers", "Server settings", "Resources", "Automation", "Backups", "Activity", "App settings", "Help & diagnostics", "App updates"];
+        model.PageTitle = Localization.Text(titles[index]);
+        model.ShowServerPicker = (WorkspacePage)index is not (WorkspacePage.Servers or WorkspacePage.AppSettings or WorkspacePage.Help or WorkspacePage.AppUpdates);
     }
     private async void ServerSelected(object? sender, SelectionChangedEventArgs e)
     {
         if (!ready || changingProfile) return;
-        try { LoadProfile(); settings = settings with { SelectedServerId = model.SelectedProfile?.Id }; await SaveSettingsAsync(); }
+        var profile = e.AddedItems.OfType<ServerProfile>().FirstOrDefault();
+        if (profile is null || profile.Id == model.SelectedProfile?.Id) return;
+        try { model.SelectedProfile = profile; LoadProfile(); settings = settings with { SelectedServerId = profile.Id }; await SaveSettingsAsync(); await RefreshServersAsync(); }
         catch (Exception error) { model.Notice = error.Message; }
     }
     private void LoadProfile()
     {
+        model.SyncRows();
+        model.ServerRunning = null;
         latestServerLog = ""; ServerLogText.Text = "";
         var p = model.SelectedProfile;
         if (p is null)
@@ -106,6 +112,7 @@ public partial class MainWindow : Window
         do
         {
             if (agentTransition) continue;
+            var observedId = model.SelectedProfile?.Id;
             try
             {
                 var p = model.SelectedProfile;
@@ -113,14 +120,14 @@ public partial class MainWindow : Window
                 {
                     if (Program.Demo)
                     {
-                        model.Status = "Demo · online"; model.Players = "2"; model.Cpu = "8.4%"; model.Memory = "3.2 GB"; model.Uptime = "4h 12m"; model.DiskFree = "142.8 GB"; model.Notice = "Demo workspace · illustrative data · server actions are disabled";
+                        model.ServerRunning = true; model.Status = "Demo · online"; model.Players = "2"; model.Cpu = "8.4%"; model.Memory = "3.2 GB"; model.Uptime = "4h 12m"; model.DiskFree = "142.8 GB"; model.Notice = "Demo workspace · illustrative data · server actions are disabled";
                         if (CpuChart is not null) { CpuChart.Add(8 + Random.Shared.NextDouble() * 2); MemoryChart.Add(3200 + Random.Shared.NextDouble() * 100); }
                     }
                     else
                     {
                         var state = await service!.ObserveAsync(p, closing.Token);
                         if (p.Id != model.SelectedProfile?.Id) continue;
-                        model.Status = !state.Accessible ? "Needs attention" : state.Running ? "Online" : "Stopped";
+                        ApplyServerState(state);
                         model.Players = state.Players?.ToString() ?? "?"; model.Cpu = state.Running ? $"{state.CpuPercent:0.0}%" : "—"; model.Memory = state.Running ? $"{state.MemoryBytes / 1073741824d:0.0} GB" : "—";
                         model.Uptime = !state.Running ? "—" : state.Uptime.TotalDays >= 2 ? $"{(int)state.Uptime.TotalDays}d {state.Uptime.Hours}h" : $"{(int)state.Uptime.TotalHours}h {state.Uptime.Minutes:00}m";
                         CpuChart!.Add(state.CpuPercent); MemoryChart.Add(state.MemoryBytes / 1048576d);
@@ -130,21 +137,44 @@ public partial class MainWindow : Window
                 if (!Program.Demo)
                 {
                     if (p is null) await service!.RefreshAsync(closing.Token);
-                    if (Navigation.SelectedIndex == 4 && LiveServerLog.IsChecked == true) await RefreshServerLogAsync();
+                    if (Navigation.SelectedIndex == (int)WorkspacePage.Activity && LiveServerLog.IsChecked == true) await RefreshServerLogAsync();
+                    UpdateRows();
                     UpdateScheduleLabels();
                     AgentStatusText.Text = service!.Background ? "Background manager active · schedules continue when the window closes" : "Background manager connected · closes with this app";
-                    if (settings.CheckAppUpdates && DateTimeOffset.UtcNow >= nextAppCheck) _ = CheckManagerUpdateAsync();
                 }
             }
             catch (OperationCanceledException) { break; }
-            catch (Exception e) { model.Notice = e.Message; }
+            catch (Exception e) { if (observedId == model.SelectedProfile?.Id) { model.ServerRunning = null; model.Status = "Unavailable"; } model.Notice = e.Message; }
         } while (!closing.IsCancellationRequested && await timer.WaitForNextTickAsync(closing.Token));
+    }
+    internal async Task RefreshServersAsync()
+    {
+        await service!.RefreshAsync(closing.Token);
+        UpdateRows();
+        if (service.Servers.FirstOrDefault(s => s.Id == model.SelectedProfile?.Id) is { } selected) ApplyServerState(selected.State);
+        await RefreshBackupsAsync();
+    }
+    private void UpdateRows()
+    {
+        model.SyncRows();
+        foreach (var row in model.ServerRows) row.Update(service!.Servers.FirstOrDefault(s => s.Id == row.Id)?.State);
+    }
+    private async void ServerRowSelected(object? sender, SelectionChangedEventArgs e)
+    {
+        var row = e.AddedItems.OfType<ServerRow>().FirstOrDefault();
+        if (!ready || changingProfile || row is null || row.Id == model.SelectedProfile?.Id) return;
+        try
+        {
+            model.SelectedProfile = model.Profiles.First(p => p.Id == row.Id); LoadProfile();
+            settings = settings with { SelectedServerId = row.Id }; await SaveSettingsAsync(); await RefreshServersAsync();
+        }
+        catch (Exception error) { model.Notice = error.Message; }
     }
     private static string DiskSpace(string path) { try { return $"{new DriveInfo(Path.GetPathRoot(path)!).AvailableFreeSpace / 1073741824d:0.0} GB"; } catch { return "Unavailable"; } }
     private void UpdateScheduleLabels()
     {
         var p = model.SelectedProfile; if (p is null) return; var schedule = service?.Schedule(p.Id);
-        model.AutomationSummary = p.AutoUpdate || p.AutoBackup ? $"Automatic updates {(p.AutoUpdate ? "on" : "off")} · Scheduled backups {(p.AutoBackup ? "on" : "off")}" : "Automation is off · you're in control";
+        model.AutomationSummary = $"Automatic updates {(p.AutoUpdate ? "on" : "off")} · Scheduled backups {(p.AutoBackup ? "on" : "off")}";
         model.NextUpdate = p.AutoUpdate ? schedule?.NextUpdate?.LocalDateTime.ToString("MMM d, h:mm tt") ?? "Scheduled after saving" : "Not scheduled";
         model.NextBackup = p.AutoBackup ? "Next backup: " + (schedule?.NextBackup?.LocalDateTime.ToString("MMM d, h:mm tt") ?? "Scheduled after saving") : "Not scheduled";
     }
@@ -177,11 +207,17 @@ public partial class MainWindow : Window
     {
         if (Program.Demo || model.SelectedProfile is null || service!.Busy) return;
         var profile = model.SelectedProfile;
-        try { model.Busy = true; model.Notice = "Working…"; model.Notice = await Task.Run(() => action(profile)); }
-        catch (Exception e) { model.Notice = e.Message; }
+        try
+        {
+            model.Busy = true; model.Notice = "Working…"; model.Notice = await Task.Run(() => action(profile));
+            var state = await service.ObserveAsync(profile, closing.Token);
+            if (model.SelectedProfile?.Id == profile.Id) ApplyServerState(state);
+            UpdateRows();
+        }
+        catch (Exception e) { if (model.SelectedProfile?.Id == profile.Id) model.ServerRunning = null; model.Notice = e.Message; }
         finally { model.Busy = false; await RefreshBackupsAsync(); RefreshHistory(); }
     }
-    private async Task SaveSettingsAsync() { if (!Program.Demo && !Program.HeadlessTest) await service!.SavePreferencesAsync(settings); }
+    private async Task SaveSettingsAsync() { if (!Program.Demo) await service!.SavePreferencesAsync(settings); }
     private async Task ReplaceProfileAsync(ServerProfile p)
     {
         p.Validate(); var index = model.Profiles.ToList().FindIndex(s => s.Id == p.Id);
@@ -189,45 +225,77 @@ public partial class MainWindow : Window
         changingProfile = true;
         try { model.Profiles[index] = p; model.SelectedProfile = p; }
         finally { changingProfile = false; }
-        UpdateScheduleLabels(); model.Notice = "Preferences saved.";
+        model.SyncRows(); UpdateScheduleLabels(); model.Notice = "Preferences saved.";
     }
     private async Task<string?> Folder(string title) => (await StorageProvider.OpenFolderPickerAsync(new() { Title = title, AllowMultiple = false })).FirstOrDefault()?.TryGetLocalPath();
     private async void ConnectServer(object? sender, RoutedEventArgs e)
     {
         if (Program.Demo) { model.Notice = "Exit demo mode to connect a real server."; return; }
+        if (!model.CanManage) return;
         try
         {
-            var files = await StorageProvider.OpenFilePickerAsync(new() { Title = "Choose the Dragonwilds server launcher", AllowMultiple = false, FileTypeFilter = [new("Dragonwilds server") { Patterns = OperatingSystem.IsWindows() ? ["RSDragonwildsServer.exe"] : ["*.sh", "RSDragonwildsServer"] }] });
-            var file = files.FirstOrDefault()?.TryGetLocalPath(); if (file is null) return;
-            var folder = Path.GetDirectoryName(file)!;
-            if (model.Profiles.Any(p => SafePaths.Same(p.InstallPath, folder))) { model.Notice = "This installation is already connected."; return; }
-            var p = await new ImportServerDialog(file, model.Profiles.ToArray()).ShowDialog<ServerProfile?>(this);
-            if (p is null) return;
-            p = await service!.ImportProfileAsync(p); model.Profiles.Add(p); model.SelectedProfile = p; settings = settings with { SelectedServerId = p.Id }; LoadProfile(); Navigation.SelectedIndex = 5;
-            model.Notice = "Imported without changing game files. Automation is off. Create your first backup when ready.";
+            await new ImportServerDialog("", model.Profiles.ToArray(), ImportServerAsync).ShowDialog(this);
         }
-        catch (Exception error) { model.Notice = error.Message; }
+        catch (Exception error) { await ShowSetupErrorAsync("Could not import server", error.Message); }
     }
     private async void NewServer(object? sender, RoutedEventArgs e)
     {
-        if (Program.Demo) { model.Notice = "Server installation is disabled in demo mode."; return; }
+        if (Program.Demo) { model.Notice = "Exit demo mode to create a real server."; return; }
+        if (!model.CanManage) return;
         try
         {
-            var folder = await Folder("Choose an empty folder for the new server"); if (folder is null) return;
-            if (Directory.EnumerateFileSystemEntries(folder).Any()) { model.Notice = "Choose an empty folder. Existing files were preserved."; return; }
-            var p = new ServerProfile { Name = "New Dragonwilds server", InstallPath = folder, BackupPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "WyrmwatchBackups") }; p.Validate();
-            if (!await Confirm("Install a new server?", "SteamCMD will download the dedicated server into:\n" + folder + "\n\nThe server will remain stopped until you configure and start it.", "Install server")) return;
-            p = await service!.SaveProfileAsync(p); model.Profiles.Add(p); model.SelectedProfile = p; LoadProfile();
-            await Run(profile => service!.InstallAsync(profile)); Navigation.SelectedIndex = 5;
+            await new CreateServerDialog(model.Profiles.ToArray(), CreateServerAsync).ShowDialog(this);
         }
-        catch (Exception error) { model.Notice = error.Message; }
+        catch (Exception error) { await ShowSetupErrorAsync("Could not create server", error.Message); }
     }
-    private async void BrowseData(object? sender, RoutedEventArgs e) { var folder = await Folder("Choose this server's Saved folder"); if (folder is not null) DataFolder.Text = folder; }
+    private async Task CreateServerAsync(ServerCreationPlan plan, Action<string> report)
+    {
+        await Task.Run(() => plan.Validate(model.Profiles.ToArray()));
+        if (service!.Busy) throw new IOException("Another server operation is still running. Wait for it to finish.");
+        model.Busy = true;
+        try
+        {
+            report("Downloading and configuring the new server… Progress is recorded in Activity.");
+            var profile = await service.CreateServerAsync(plan);
+            await AddProfileAsync(profile);
+            model.Notice = "Server created. Press Start when ready. Automation is off.";
+        }
+        finally { model.Busy = false; RefreshHistory(); }
+    }
+    private async Task ImportServerAsync(ServerProfile profile)
+    {
+        model.Busy = true;
+        try
+        {
+            await AddProfileAsync(await service!.ImportProfileAsync(profile));
+            model.Notice = "Server imported. Game files are unchanged; automation is off.";
+        }
+        finally { model.Busy = false; }
+    }
+    private async Task AddProfileAsync(ServerProfile profile)
+    {
+        changingProfile = true;
+        try { model.Profiles.Add(profile); model.SelectedProfile = profile; }
+        finally { changingProfile = false; }
+        settings = settings with { SelectedServerId = profile.Id };
+        await SaveSettingsAsync(); LoadProfile(); ShowPage(WorkspacePage.Servers);
+        await RefreshServersAsync();
+    }
+    private async Task ShowSetupErrorAsync(string title, string message)
+    {
+        model.Notice = message;
+        var dialog = new Window { Title = title, Width = 520, SizeToContent = SizeToContent.Height, CanResize = false, WindowStartupLocation = WindowStartupLocation.CenterOwner, ShowInTaskbar = false };
+        var close = new Button { Content = "OK", Classes = { "primary" }, HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right };
+        close.Click += (_, _) => dialog.Close();
+        dialog.Content = new StackPanel { Margin = new Thickness(28), Spacing = 20, Children = { new TextBlock { Text = title, FontSize = 22, FontWeight = FontWeight.SemiBold }, new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap }, close } };
+        await dialog.ShowDialog(this);
+    }
+    private void OpenDataFolder(object? sender, RoutedEventArgs e) { if (model.SelectedProfile is { } p) OpenPath(p.SavedPath); }
     private async void BrowseBackups(object? sender, RoutedEventArgs e) { var folder = await Folder("Choose a backup folder outside the server"); if (folder is not null) BackupFolder.Text = folder; }
     private async void SaveConnection(object? sender, RoutedEventArgs e)
     {
         if (model.SelectedProfile is not { } p || Program.Demo) return;
-        try { await ReplaceProfileAsync(p with { Name = ProfileName.Text?.Trim() ?? "", BackupPath = BackupFolder.Text?.Trim() ?? "", DataPath = DataFolder.Text?.Trim() ?? "" }); LoadProfile(); }
+        try { await ReplaceProfileAsync(p with { Name = ProfileName.Text?.Trim() ?? "", BackupPath = BackupFolder.Text?.Trim() ?? "" }); LoadProfile(); }
         catch (Exception error) { model.Notice = error.Message; }
     }
     private async void SaveAutomation(object? sender, RoutedEventArgs e)
@@ -243,6 +311,7 @@ public partial class MainWindow : Window
     }
     private async void WriteConfiguration(object? sender, RoutedEventArgs e)
     {
+        if (!model.CanConfigure) { model.Notice = model.ConfigurationHint; return; }
         var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["OwnerId"] = OwnerId.Text ?? "", ["ServerName"] = GameServerName.Text ?? "", ["DefaultWorldName"] = WorldName.Text ?? "", ["AdminPassword"] = AdminPassword.Text ?? "", ["WorldPassword"] = WorldPassword.Text ?? "", ["Port"] = ((int)(GamePort.Value ?? 7777)).ToString() };
         if (!await Confirm("Write game configuration?", "The server must be stopped. Existing settings will be backed up before these changes are written.", "Write configuration")) return;
         await Run(async p =>
@@ -252,13 +321,26 @@ public partial class MainWindow : Window
             return result;
         });
     }
-    private async void StartServer(object? sender, RoutedEventArgs e) => await Run(p => service!.StartAsync(p));
-    private async void StopServer(object? sender, RoutedEventArgs e) { if (await Confirm("Stop this server?", "Connected players will be disconnected. Wyrmwatch will back up first and request a graceful shutdown.", "Stop server")) await Run(p => service!.StopAsync(p)); }
-    private async void RestartServer(object? sender, RoutedEventArgs e) { if (await Confirm("Restart this server?", "Connected players will be disconnected. A backup is required before restarting.", "Restart server")) await Run(p => service!.StopAsync(p, true)); }
+    private async void StartServer(object? sender, RoutedEventArgs e) { if (model.CanStart) await Run(p => service!.StartAsync(p)); }
+    private async void StopServer(object? sender, RoutedEventArgs e) { if (model.CanStop && await Confirm("Stop this server?", "Connected players will be disconnected. Wyrmwatch will back up first and request a graceful shutdown.", "Stop server")) await Run(p => service!.StopAsync(p)); }
+    private async void RestartServer(object? sender, RoutedEventArgs e) { if (model.CanStop && await Confirm("Restart this server?", "Connected players will be disconnected. A backup is required before restarting.", "Restart server")) await Run(p => service!.StopAsync(p, true)); }
     private async void CreateBackup(object? sender, RoutedEventArgs e) => await Run(p => service!.BackupAsync(p));
     private async void CheckUpdates(object? sender, RoutedEventArgs e) { await Run(async p => { var result = await service!.CheckAsync(p); Dispatcher.UIThread.Post(() => model.BuildSummary = result); return result; }); }
     private async void ApplyUpdate(object? sender, RoutedEventArgs e) => await Run(p => service!.UpdateAsync(p));
-    private void GoBackups(object? sender, RoutedEventArgs e) => Navigation.SelectedIndex = 3;
+    internal void ShowPage(WorkspacePage page) => Navigation.SelectedIndex = (int)page;
+    private void GoServers(object? sender, RoutedEventArgs e) => ShowPage(WorkspacePage.Servers);
+    private void GoBackups(object? sender, RoutedEventArgs e) => ShowPage(WorkspacePage.Backups);
+    private void GoServerSettings(object? sender, RoutedEventArgs e) => ShowPage(WorkspacePage.ServerSettings);
+    private void GoAutomation(object? sender, RoutedEventArgs e) => ShowPage(WorkspacePage.Automation);
+    private void ApplyServerState(ServerSnapshot state)
+    {
+        model.ServerRunning = state.Accessible ? state.Running : null;
+        model.Status = !state.Accessible ? "Needs attention" : state.Running ? "Online" : "Stopped";
+        model.Players = state.Players?.ToString() ?? "?";
+        model.Cpu = state.Running ? $"{state.CpuPercent:0.0}%" : "—";
+        model.Memory = state.Running ? $"{state.MemoryBytes / 1073741824d:0.0} GB" : "—";
+        model.Uptime = !state.Running ? "—" : state.Uptime.TotalDays >= 2 ? $"{(int)state.Uptime.TotalDays}d {state.Uptime.Hours}h" : $"{(int)state.Uptime.TotalHours}h {state.Uptime.Minutes:00}m";
+    }
     private async void VerifyBackup(object? sender, RoutedEventArgs e)
     {
         if (BackupList.SelectedItem is not BackupRow row || model.SelectedProfile is not { } p) { model.Notice = "Select a backup first."; return; }
@@ -287,7 +369,7 @@ public partial class MainWindow : Window
         {
             if (Program.Demo) { model.Notice = "Appearance previewed. Demo preferences are not saved."; return; }
             DesktopIntegration.SetStartup(LaunchAtLogin.IsChecked == true);
-            settings = settings with { Theme = ThemePicker.SelectedIndex switch { 1 => "Light", 2 => "System", _ => "Dark" }, CloseToTray = CloseToTray.IsChecked == true, LaunchAtLogin = LaunchAtLogin.IsChecked == true, BackgroundMode = KeepBackground.IsChecked == true, CheckAppUpdates = AutoAppChecks.IsChecked == true, Language = (LanguagePicker.SelectedItem as LanguagePack)?.Id ?? "en" }; await SaveSettingsAsync(); model.Notice = "Desktop preferences saved.";
+            settings = settings with { Theme = ThemePicker.SelectedIndex switch { 1 => "Light", 2 => "System", _ => "Dark" }, CloseToTray = CloseToTray.IsChecked == true, LaunchAtLogin = LaunchAtLogin.IsChecked == true, BackgroundMode = KeepBackground.IsChecked == true, Language = (LanguagePicker.SelectedItem as LanguagePack)?.Id ?? "en" }; await SaveSettingsAsync(); model.Notice = "Desktop preferences saved.";
         }
         catch (Exception error) { model.Notice = error.Message; }
     }
@@ -327,7 +409,7 @@ public partial class MainWindow : Window
     private async void DisconnectServer(object? sender, RoutedEventArgs e)
     {
         if (Program.Demo || model.SelectedProfile is not { } p) return;
-        if (!await Confirm("Disconnect this server?", $"Remove {p.Name} from Wyrmwatch and stop its scheduled maintenance. Its game process, saves, installation, and backups will stay in place. You can connect it again later.", "Disconnect")) return;
+        if (!await Confirm("Remove this server from the list?", $"Remove {p.Name} from Wyrmwatch and stop its scheduled maintenance. Its game process, saves, installation, and backups will stay in place. You can connect it again later.", "Remove server")) return;
         try
         {
             await service!.SendAsync("admin/profiles/" + Uri.EscapeDataString(p.Id), HttpMethod.Delete);
@@ -336,7 +418,7 @@ public partial class MainWindow : Window
             finally { changingProfile = false; }
             ProfileName.Text = InstallFolder.Text = DataFolder.Text = BackupFolder.Text = "";
             OwnerId.Text = GameServerName.Text = WorldName.Text = AdminPassword.Text = WorldPassword.Text = "";
-            model.Backups.Clear(); LoadProfile(); model.Notice = "Connection removed. Server files and backups are preserved.";
+            model.Backups.Clear(); LoadProfile(); ShowPage(WorkspacePage.Servers); model.Notice = "Connection removed. Server files and backups are preserved.";
         }
         catch (Exception error) { model.Notice = error.Message; }
     }

@@ -5,6 +5,26 @@ using Wyrmwatch.Core;
 
 namespace Wyrmwatch.Desktop;
 
+internal enum WorkspacePage { Servers, ServerSettings, Resources, Automation, Backups, Activity, AppSettings, Help, AppUpdates }
+
+public sealed class ServerRow(ServerProfile profile) : INotifyPropertyChanged
+{
+    public event PropertyChangedEventHandler? PropertyChanged;
+    public string Id => profile.Id;
+    public string Name => profile.Name;
+    public string Path => profile.InstallPath;
+    public string Status { get; private set; } = "Checking…";
+    public string Metrics { get; private set; } = "Waiting for the manager";
+    public void Replace(ServerProfile value) { if (profile == value) return; profile = value; PropertyChanged?.Invoke(this, new(null)); }
+    public void Update(ServerSnapshot? state)
+    {
+        var status = state is null ? "Checking…" : !state.Accessible ? "Needs attention" : state.Running ? "Running" : "Stopped";
+        var metrics = state is null ? "Waiting for the manager" : !state.Accessible ? state.ActivityReason : !state.Running ? $"UDP {profile.Port} · {(File.Exists(profile.Launcher) ? "Ready to start" : "Launcher missing")}" : $"{state.Players?.ToString() ?? "?"} players · CPU {state.CpuPercent:0.0}% · {state.MemoryBytes / 1073741824d:0.0} GB";
+        if (Status == status && Metrics == metrics) return;
+        Status = status; Metrics = metrics; PropertyChanged?.Invoke(this, new(null));
+    }
+}
+
 public sealed record BackupRow(BackupInfo Info)
 {
     public string Title => Info.Manifest.Created.ToLocalTime().ToString("MMM d, yyyy · h:mm tt");
@@ -22,21 +42,49 @@ public sealed class WorkspaceModel : INotifyPropertyChanged
     public void Refresh([CallerMemberName] string? name = null) => PropertyChanged?.Invoke(this, new(name));
     private void Set<T>(ref T field, T value, [CallerMemberName] string? name = null) { if (EqualityComparer<T>.Default.Equals(field, value)) return; field = value; Refresh(name); }
     public ObservableCollection<ServerProfile> Profiles { get; } = [];
+    public ObservableCollection<ServerRow> ServerRows { get; } = [];
+    private ServerRow? selectedRow;
+    public ServerRow? SelectedRow { get => selectedRow; set => Set(ref selectedRow, value); }
+    public string ServerCount => $"{Profiles.Count} saved server{(Profiles.Count == 1 ? "" : "s")}";
+    public bool CanManage => !Busy && !Program.Demo;
+    public void SyncRows()
+    {
+        foreach (var row in ServerRows.Where(r => Profiles.All(p => p.Id != r.Id)).ToArray()) ServerRows.Remove(row);
+        foreach (var profile in Profiles)
+        {
+            var row = ServerRows.FirstOrDefault(r => r.Id == profile.Id);
+            if (row is null) ServerRows.Add(new(profile)); else row.Replace(profile);
+        }
+        SelectedRow = ServerRows.FirstOrDefault(r => r.Id == SelectedProfile?.Id);
+        Refresh(nameof(ServerCount));
+    }
     public ObservableCollection<BackupRow> Backups { get; } = [];
     public ObservableCollection<OperationRow> Operations { get; } = [];
     private ServerProfile? selectedProfile;
-    public ServerProfile? SelectedProfile { get => selectedProfile; set { Set(ref selectedProfile, value); Refresh(null); } }
+    public ServerProfile? SelectedProfile { get => selectedProfile; set { if (selectedProfile?.Id != value?.Id) serverRunning = null; Set(ref selectedProfile, value); Refresh(null); } }
     public bool HasServer => SelectedProfile is not null;
     public bool NoServer => !HasServer;
     public string ServerName => SelectedProfile?.Name ?? "No server connected";
     public string ServerPath => SelectedProfile?.InstallPath ?? "";
     private bool busy;
-    public bool Busy { get => busy; set { Set(ref busy, value); Refresh(nameof(CanAct)); } }
+    public bool Busy { get => busy; set { Set(ref busy, value); RefreshActions(); } }
     public bool CanAct => HasServer && !Busy && !Program.Demo;
-    private string pageTitle = "Your server, at a glance.";
+    private bool? serverRunning;
+    public bool? ServerRunning { get => serverRunning; set { Set(ref serverRunning, value); RefreshActions(); } }
+    public bool CanStart => CanAct && ServerRunning == false;
+    public bool CanStop => CanAct && ServerRunning == true;
+    public bool CanConfigure => CanStart;
+    public string ConfigurationHint => !HasServer ? "Choose a server to edit its settings." : ServerRunning switch
+    {
+        true => "Stop this server before saving game configuration. You can review and edit the fields now.",
+        false => "This server is stopped. Existing settings are backed up before changes are saved.",
+        _ => "Waiting for a verified server state before game configuration can be saved."
+    };
+    private void RefreshActions() { foreach (var name in new[] { nameof(CanAct), nameof(CanStart), nameof(CanStop), nameof(CanConfigure), nameof(CanManage), nameof(ConfigurationHint) }) Refresh(name); }
+    private bool showServerPicker = true;
+    public bool ShowServerPicker { get => showServerPicker; set => Set(ref showServerPicker, value); }
+    private string pageTitle = "Servers";
     public string PageTitle { get => pageTitle; set => Set(ref pageTitle, value); }
-    private string pageSubtitle = "A quieter way to keep your world running.";
-    public string PageSubtitle { get => pageSubtitle; set => Set(ref pageSubtitle, value); }
     private string status = "Not connected";
     public string Status { get => status; set => Set(ref status, value); }
     private string players = "—", cpu = "—", memory = "—", uptime = "—", diskFree = "—", build = "Not checked yet", backup = "No recovery points yet", automation = "Automation is off", notice = "Ready. Connect a server to get started.", activity = "", diagnostics = "Select a server, then refresh diagnostics.", nextUpdate = "Not scheduled", nextBackup = "Not scheduled";

@@ -2,7 +2,7 @@
 
 ## Updating Wyrmwatch
 
-The App updates page checks stable releases in `stephenjarrett/Wyrmwatch`. Optional automatic checks run every six hours while the desktop is open. Game updates remain a separate automation setting.
+The App updates page checks stable releases in `stephenjarrett/Wyrmwatch`. Checks run only when you press the check button; there is no automatic app-release watcher. Game updates remain a separate automation setting.
 
 1. Check for a release and review its notes.
 2. Download the platform package. Its size and GitHub-published SHA-256 digest must match before extraction.
@@ -20,4 +20,4 @@ English is bundled. Settings lets you export a JSON template, translate its stri
 
 Packs contain plain text, never executable code or XAML. Imported files are limited to 1 MB and stored under the workspace's `languages` directory. Replacing a pack keeps a `.bak` copy. Save desktop preferences to remember the selected language.
 
-The current catalog covers navigation and static desktop interface text. Runtime diagnostic messages, operation output, dialogs, and the remote dashboard remain English. A language pack is not a promise of fully localized game messages. Contributions can extend the catalog; run `python scripts/extract-strings.py` after adding static interface labels.
+The current catalog covers navigation and static desktop interface text. Runtime diagnostic messages, operation output, dialogs remain English. A language pack is not a promise of fully localized game messages. Contributions can extend the catalog; run `python scripts/extract-strings.py` after adding static interface labels.

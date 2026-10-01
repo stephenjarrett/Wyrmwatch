@@ -14,9 +14,23 @@ Coverage includes:
 - An active operation blocking another action, schedule execution, connection edits, and agent shutdown.
 - Installation locks excluding duplicate work while allowing unrelated installations, including an unwritable legacy lock directory on Linux and actionable permission errors.
 - A real agent completing a scheduled backup after its desktop parent exits, retaining the next deadline across restart, and avoiding a duplicate backup.
-- Authorized HTTP backup/verify/restore, role and server scope restrictions, required restore confirmation, revocation, and owner-only import.
+- Authenticated loopback HTTP backup/verify/restore, required restore confirmation, rejection of untrusted origins, and local-only import. Legacy remote settings are ignored and preserved.
 - Windows ZIP and Linux TAR package safety, links/traversal/duplicates/truncation, interrupted downloads, executable permissions, and retention of the previous app.
 - Headless UI navigation, themes, selected-navigation text contrast, focused form stability, and import review/confirmation invalidation after edits.
+
+## Current desktop workflows
+
+The desktop suite drives mouse clicks and text input against the actual Avalonia controls, connects `AgentClient` to the production loopback HTTP routes, and checks persisted settings and file contents. Dummy Steam and game adapters prevent real downloads or launches. Fixtures are isolated temporary folders.
+
+The flows cover creation and required owner validation, occupied destinations, cancellation, interrupted-download retry, read-only import, changed-port refusal and import retry, editing connection and game settings, selecting two saved servers, refusing a second simultaneous start, stop controls, verified backups, restore, removal from the list, and reopening the saved workspace. Removal preserves installation, configuration, worlds and backups. The surviving server's world is checked after edits, restores and removal of the other server.
+
+The suite has 88 core/agent checks and 15 desktop checks. Desktop tests run serially because Avalonia theme resources and desktop startup options are shared. The same suites run on Windows and Ubuntu in CI. Set `WYRM_TEST_SCREENSHOTS` to an output directory to capture the rendered UI while exercising these flows.
+
+Headless end-to-end tests exercise the application controls and API, including actual text-input and mouse events. They do not verify Windows/Linux native folder-picker dialogs, Steam network downloads, or game-engine save compatibility. Native Windows mouse input and screen capture were blocked by the environment; those checks remain explicitly unverified.
+
+## Earlier release verification (0.2.0–0.2.1)
+
+Remote-dashboard and browser checks below describe earlier releases. Remote access has been removed in 0.2.2.
 
 Live portable-package checks on 29 September 2026 exercised Windows and Linux imports with external saves, HTTPS backup/verify/restore and access restrictions, agent restart with a fixture server still running, graceful shutdown, and switching two saved servers on the same UDP port. Linux was also checked as a non-root user after another account had created the legacy shared lock directory. A separate Linux container reached the Windows agent over TLS 1.3 with certificate and hostname validation enabled. These used disposable fake servers, with no real server changes.
 

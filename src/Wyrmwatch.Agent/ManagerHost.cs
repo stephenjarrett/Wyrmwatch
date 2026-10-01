@@ -7,7 +7,7 @@ namespace Wyrmwatch.Agent;
 
 public sealed class ManagerHost
 {
-    public const string Version = "0.2.1";
+    public const string Version = "0.2.2";
     private readonly JsonStore store;
     private readonly IServerRuntime runtime;
     private readonly ISteamClient steam;
@@ -17,17 +17,16 @@ public sealed class ManagerHost
     private readonly ConcurrentDictionary<string, ServerSnapshot> snapshots = new();
     private readonly ConcurrentQueue<string> log = new();
     private readonly object logLock = new();
-    private readonly object grantsLock = new();
     private AgentParent? parent;
     private Task? scheduler;
     private bool stopping;
-    public string? RemoteAddress { get; set; }
     public bool PersistentHost { get; set; }
     public bool Busy => operations.CurrentCount == 0 || maintenance.Busy;
     public ManagerHost(JsonStore store, IServerRuntime? runtime = null, ISteamClient? steam = null)
     {
         this.store = store;
-        var helper = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "Wyrmwatch.Signal.exe"));
+        var helper = Path.Combine(AppContext.BaseDirectory, "Wyrmwatch.Signal.exe");
+        if (!File.Exists(helper)) helper = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "Wyrmwatch.Signal.exe"));
         this.runtime = new SingleServerRuntime(runtime ?? (OperatingSystem.IsWindows() ? new WindowsRuntime(store, helper) : new LinuxRuntime(store)), () =>
         {
             var settings = Settings;
@@ -66,15 +65,17 @@ public sealed class ManagerHost
         var settings = Settings;
         return new(Busy, Version, settings.Servers.Select(p => new ManagedServer(p.Id, p.Name,
             snapshots.GetValueOrDefault(p.Id, ServerSnapshot.Offline with { Accessible = false, Players = null, ActivityReason = "Waiting for the first observation." }),
-            maintenance.Schedule(p.Id), steam.InstalledBuild(p))).ToList(), maintenance.History.Snapshot().Take(100).ToList(), log.ToList(), settings.BackgroundMode || PersistentHost, RemoteAddress, PersistentHost);
+            maintenance.Schedule(p.Id), steam.InstalledBuild(p))).ToList(), maintenance.History.Snapshot().Take(100).ToList(), log.ToList(), settings.BackgroundMode || PersistentHost, null, PersistentHost);
     }
     public ServerProfile Profile(string id) => Settings.Servers.SingleOrDefault(p => p.Id == id) ?? throw new KeyNotFoundException("Server connection not found.");
     public async Task<string> ExecuteAsync(string id, ServerAction request)
     {
         if (!await operations.WaitAsync(0)) throw new InvalidOperationException("Another operation is still running.");
+        ServerProfile? observed = null;
         try
         {
             var p = Profile(id);
+            observed = p;
             if (request.Action == "configuration" && request.Values?.TryGetValue("Port", out var portText) == true)
             {
                 if (!int.TryParse(portText, out var port)) throw new ArgumentException("Invalid port.");
@@ -97,7 +98,13 @@ public sealed class ManagerHost
                 _ => throw new ArgumentException("Unknown operation.")
             };
         }
-        finally { operations.Release(); }
+        finally
+        {
+            if (observed is not null)
+                try { snapshots[id] = await maintenance.ObserveAsync(observed); }
+                catch (Exception error) { snapshots[id] = ServerSnapshot.Offline with { Accessible = false, Players = null, ActivityReason = error.Message }; }
+            operations.Release();
+        }
     }
     private async Task<string> SaveConfigurationAsync(ServerProfile profile, IReadOnlyDictionary<string, string> values)
     {
@@ -112,6 +119,49 @@ public sealed class ManagerHost
         var inspected = ExistingServerImport.Inspect(profile.Launcher, profile.SavedPath, profile.BackupPath);
         if (inspected.Port != profile.Port) throw new ArgumentException("The server port changed during import. Review the connection again.");
         return SaveProfileAsync(profile with { AutoBackup = false, AutoUpdate = false });
+    }
+    public async Task<ServerProfile> CreateServerAsync(CreateServerRequest request)
+    {
+        if (!await operations.WaitAsync(0)) throw new InvalidOperationException("Another server operation is still running.");
+        var profile = request.Profile with { AutoBackup = false, AutoUpdate = false };
+        string? staging = null;
+        try
+        {
+            ServerConnections.Validate(profile, Settings.Servers.Concat(Settings.DisconnectedServers));
+            if (Settings.Servers.Any(p => p.Id == profile.Id)) throw new ArgumentException("This server is already connected.");
+            if (!string.IsNullOrEmpty(profile.DataPath) || !string.IsNullOrEmpty(profile.LauncherPath)) throw new ArgumentException("New servers must use their own installation and save folders.");
+            var values = request.Configuration;
+            if (!values.TryGetValue("Port", out var port) || port != profile.Port.ToString()) throw new ArgumentException("The game port does not match the reviewed setup.");
+            var configuration = GameConfiguration.Merge("", values);
+            using var lease = InstallationLease.Acquire(profile.InstallPath);
+            if (File.Exists(profile.InstallPath) || Directory.Exists(profile.InstallPath)) throw new IOException("Choose a new server folder name. The target already exists; no existing files were changed.");
+            var state = await runtime.InspectAsync(profile);
+            if (!state.Accessible || state.Running) throw new IOException("Cannot confirm this installation is stopped.");
+            staging = profile.InstallPath + ".setup-" + Guid.NewGuid().ToString("N");
+            var stagedProfile = profile with { InstallPath = staging };
+            ServerConnections.Validate(stagedProfile, Settings.Servers.Concat(Settings.DisconnectedServers));
+            WriteLog($"{profile.Name}: downloading new server into {staging}");
+            await steam.InstallAsync(stagedProfile, false, WriteLog);
+            SafePaths.NoLinks(stagedProfile.Launcher);
+            if (!File.Exists(stagedProfile.Launcher)) throw new IOException("The download did not produce the server launcher.");
+            configuration = GameConfiguration.Merge(File.Exists(stagedProfile.ConfigPath) ? await File.ReadAllTextAsync(stagedProfile.ConfigPath) : "", values);
+            AtomicFile.Write(stagedProfile.ConfigPath, configuration);
+            SafePaths.NoLinks(profile.InstallPath);
+            // Move fails if another app created the target. Never replace an existing folder.
+            Directory.Move(staging, profile.InstallPath);
+            var settings = Settings;
+            store.Write("settings.json", settings with { Servers = [.. settings.Servers, profile], SelectedServerId = profile.Id });
+            snapshots[profile.Id] = ServerSnapshot.Offline;
+            WriteLog($"{profile.Name}: created and configured; stopped, automation off.");
+            return profile;
+        }
+        catch (Exception error)
+        {
+            var detail = staging is not null && Directory.Exists(staging) ? $" Downloaded files were preserved at {staging}. You can retry with the same new server name." : "";
+            WriteLog("Create server failed: " + error.Message + detail);
+            throw new IOException(error.Message + detail, error);
+        }
+        finally { operations.Release(); }
     }
     private string Archive(ServerProfile profile, string? name) => backups.List(profile).SingleOrDefault(b => Path.GetFileName(b.Path) == name)?.Path ?? throw new ArgumentException("Choose a backup belonging to this server.");
     private async Task<string> VerifyAsync(ServerProfile profile, string? name)
@@ -151,7 +201,7 @@ public sealed class ManagerHost
     public Task SavePreferencesAsync(ManagerSettings preferences) => ChangeSettingsAsync(settings => settings with
     {
         Theme = preferences.Theme, CloseToTray = preferences.CloseToTray, LaunchAtLogin = preferences.LaunchAtLogin,
-        BackgroundMode = preferences.BackgroundMode, Language = preferences.Language, CheckAppUpdates = preferences.CheckAppUpdates,
+        BackgroundMode = preferences.BackgroundMode, Language = preferences.Language,
         SelectedServerId = preferences.SelectedServerId
     });
     private async Task ChangeSettingsAsync(Func<ManagerSettings, ManagerSettings> change)
@@ -160,17 +210,6 @@ public sealed class ManagerHost
         try { store.Write("settings.json", change(Settings)); }
         finally { operations.Release(); }
     }
-    public List<AccessGrant> Grants() { lock (grantsLock) return store.Read("access-grants.json", () => new List<AccessGrant>()); }
-    public IssuedAccessGrant Issue(CreateAccessGrant request)
-    {
-        if (request.Role is not ("Viewer" or "Operator" or "Maintainer") || request.Days is < 1 or > 365 || string.IsNullOrWhiteSpace(request.Name) || request.Name.Length > 80) throw new ArgumentException("Choose a name, role, and lifetime from 1 to 365 days.");
-        if (request.ServerId is not null) _ = Profile(request.ServerId);
-        var secret = AccessPolicy.NewSecret();
-        var grant = new AccessGrant(Guid.NewGuid().ToString("N"), request.Name, AccessPolicy.Hash(secret), request.Role, request.ServerId, DateTimeOffset.UtcNow.AddDays(request.Days));
-        lock (grantsLock) { var grants = Grants(); grants.Add(grant); store.Write("access-grants.json", grants); WorkspaceLease.Protect(Path.Combine(store.DirectoryPath, "access-grants.json")); }
-        return new(grant, secret);
-    }
-    public void Revoke(string id) { lock (grantsLock) store.Write("access-grants.json", Grants().Where(g => g.Id != id).ToList()); }
     public async Task MonitorAsync(Action stop, CancellationToken token)
     {
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(3));

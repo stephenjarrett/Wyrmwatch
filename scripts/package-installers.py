@@ -1,9 +1,11 @@
 """Build platform installers from the same complete portable folder."""
 import argparse
 import hashlib
+import json
 import os
 from pathlib import Path
 import shutil
+import re
 import subprocess
 import tempfile
 import xml.etree.ElementTree as ET
@@ -25,8 +27,21 @@ for name in ('LICENSE', 'NOTICE', 'Wyrmwatch-source.zip', 'SOURCE.md'):
 
 if args.runtime == 'win-x64':
     compiler = args.inno_compiler or Path(os.environ.get('ProgramFiles(x86)', 'C:/Program Files (x86)')) / 'Inno Setup 6/ISCC.exe'
-    subprocess.run([str(compiler), f'/DAppVersion={version}', f'/DBuildDirectory={build}',
-                    f'/DPackageDirectory={output}', str(root / 'scripts/windows-installer.iss')], check=True)
+    retired = json.loads((build / 'retired-package-files.json').read_text(encoding='utf-8-sig'))
+    if not isinstance(retired, list) or not retired:
+        raise RuntimeError('Missing obsolete package-file manifest')
+    for name in retired:
+        if not isinstance(name, str) or not re.fullmatch(r'(?:agent/)?[A-Za-z0-9_.-]+', name):
+            raise RuntimeError('Unsafe obsolete package path')
+        if '..' in name or (not name.startswith('agent/') and not name.endswith('.pdb')) or (build / name).exists():
+            raise RuntimeError(f'Refusing to remove a current or unrelated package file: {name}')
+    with tempfile.TemporaryDirectory(prefix='wyrmwatch-inno-') as temporary:
+        obsolete = Path(temporary) / 'obsolete-files.iss'
+        obsolete.write_text('[InstallDelete]\n' + ''.join(
+            'Type: files; Name: "{app}\\' + name.replace('/', '\\') + '"\n' for name in retired), encoding='utf-8')
+        subprocess.run([str(compiler), f'/DAppVersion={version}', f'/DBuildDirectory={build}',
+                        f'/DPackageDirectory={output}', f'/DRetiredFilesInclude={obsolete}',
+                        str(root / 'scripts/windows-installer.iss')], check=True)
     package = output / f'Wyrmwatch-{version}-win-x64-setup.exe'
 else:
     package = output / f'Wyrmwatch-{version}-linux-amd64.deb'
@@ -56,7 +71,7 @@ else:
             'Homepage: https://github.com/stephenjarrett/Wyrmwatch\n'
             'Description: Desktop manager for Dragonwilds dedicated servers\n'
             ' Manage saved server connections, verified backups, and optional maintenance.\n'
-            ' Services and remote access remain disabled until explicitly configured.\n', encoding='utf-8')
+            ' Services and automatic maintenance remain disabled until explicitly configured.\n', encoding='utf-8')
         # Refuse package replacement/removal while the packaged manager is running.
         # Never stop a process, enable a service, or remove user/game data here.
         guard = '''#!/bin/sh

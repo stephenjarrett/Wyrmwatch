@@ -32,6 +32,9 @@ jobs:
       - name: Build portable app
         shell: pwsh
         run: ./scripts/build.ps1 -Runtime ${{ matrix.runtime }} -SkipTests
+      - name: Verify packaged shared runtime
+        shell: pwsh
+        run: ./scripts/test-published.ps1 -ApplicationDirectory dist/${{ matrix.runtime }}
       - name: Install Linux packaging tools
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y desktop-file-utils

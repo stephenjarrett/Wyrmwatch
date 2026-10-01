@@ -27,6 +27,9 @@ jobs:
       - name: Test and build
         shell: pwsh
         run: ./scripts/build.ps1 -Runtime ${{ matrix.runtime }}
+      - name: Verify packaged shared runtime
+        shell: pwsh
+        run: ./scripts/test-published.ps1 -ApplicationDirectory dist/${{ matrix.runtime }}
       - name: Package with source and notices
         run: python scripts/package.py ${{ matrix.runtime }}
       - name: Install Linux packaging tools

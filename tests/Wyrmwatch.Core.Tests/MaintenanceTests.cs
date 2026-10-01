@@ -101,6 +101,33 @@ public class MaintenanceTests
         var service = new MaintenanceService(runtime, new Steam(), new(), new(f.Root)); var original = File.ReadAllText(f.Profile.ConfigPath);
         await Assert.ThrowsAsync<IOException>(() => service.SaveConfigurationAsync(f.Profile, GameConfiguration.Read(f.Profile.ConfigPath))); Assert.Equal(original, File.ReadAllText(f.Profile.ConfigPath));
     }
+    [Theory] [InlineData(false)] [InlineData(true)]
+    public async Task StopAndRestartOfStoppedServerDoNotStartProcessesOrCreateBackups(bool restart)
+    {
+        using var f = new Fixture(); var runtime = new Runtime(); var engine = new BackupEngine();
+        var service = new MaintenanceService(runtime, new Steam(), engine, new(f.Root));
+        Assert.Equal("The server is already stopped.", await service.StopAsync(f.Profile, restart));
+        Assert.Equal(0, runtime.Starts); Assert.Equal(0, runtime.Stops); Assert.Empty(engine.List(f.Profile));
+    }
+    [Theory] [InlineData(30)] [InlineData(60)] [InlineData(180)]
+    public async Task GameUpdateScheduleHonorsSavedInterval(int minutes)
+    {
+        using var f = new Fixture(); var clock = new Clock(); var steam = new Steam { Available = "100" };
+        var p = f.Profile with { AutoUpdate = true, UpdateMinutes = minutes };
+        var service = new MaintenanceService(new Runtime(), steam, new(), new(f.Root), clock);
+        await service.TickAsync([p]);
+        Assert.Equal(clock.Now.AddMinutes(minutes), service.Schedule(p.Id).NextUpdate);
+        clock.Now = clock.Now.AddMinutes(minutes); await service.TickAsync([p]);
+        Assert.Equal(clock.Now.AddMinutes(minutes), service.Schedule(p.Id).NextUpdate);
+        var reopened = new MaintenanceService(new Runtime(), steam, new(), new(f.Root), clock);
+        Assert.Equal(service.Schedule(p.Id).NextUpdate, reopened.Schedule(p.Id).NextUpdate);
+    }
+    [Fact] public void OldShortIntervalsUseThirtyMinutesWithoutEnablingAutomation()
+    {
+        var p = System.Text.Json.JsonSerializer.Deserialize<ServerProfile>("{\"UpdateMinutes\":5}")!;
+        Assert.Equal(30, p.UpdateMinutes); Assert.Equal(60, new ServerProfile().UpdateMinutes);
+        Assert.False(p.AutoUpdate); Assert.False(p.AutoBackup);
+    }
     [Fact] public async Task SchedulerPersistsDeadlinesAndRunsMissedBackupOnce()
     {
         using var f = new Fixture(); var clock = new Clock(); var p = f.Profile with { AutoBackup = true, BackupHours = 1 }; var engine = new BackupEngine();

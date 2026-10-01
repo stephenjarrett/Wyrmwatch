@@ -32,13 +32,24 @@ public sealed class JsonStore(string directory)
     public T Read<T>(string name, Func<T> fallback)
     {
         var path = Path.Combine(DirectoryPath, name);
-        if (!File.Exists(path)) return fallback();
-        try
+        var existed = File.Exists(path);
+        for (var attempt = 0; ; attempt++)
         {
-            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-            return JsonSerializer.Deserialize<T>(stream, Options) ?? throw new JsonException("Empty document");
+            try
+            {
+                using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                return JsonSerializer.Deserialize<T>(stream, Options) ?? throw new JsonException("Empty document");
+            }
+            // Windows replacement can briefly make the target unavailable to a new reader.
+            catch (FileNotFoundException)
+            {
+                if (attempt >= 4) { if (existed) throw new IOException($"Cannot read {name} during replacement. Try again; no preferences were changed."); return fallback(); }
+                Thread.Sleep(5);
+            }
+            catch (DirectoryNotFoundException) { return fallback(); }
+            catch (IOException error) when (AtomicFile.SharingViolation(error) && attempt < 20) { Thread.Sleep(10); }
+            catch (JsonException e) { throw new IOException($"Cannot read {name}. The original file has been preserved.", e); }
         }
-        catch (JsonException e) { throw new IOException($"Cannot read {name}. The original file has been preserved.", e); }
     }
     public void Write<T>(string name, T value)
     {
@@ -49,6 +60,7 @@ public sealed class JsonStore(string directory)
 
 public static class AtomicFile
 {
+    internal static bool SharingViolation(IOException error) => OperatingSystem.IsWindows() && (error.HResult & 0xffff) is 32 or 33;
     public static void Write(string path, string text)
     {
         SafePaths.NoLinks(path);
@@ -61,8 +73,16 @@ public static class AtomicFile
                 using var writer = new StreamWriter(file, new System.Text.UTF8Encoding(false), leaveOpen: true);
                 writer.Write(text); writer.Flush(); file.Flush(true);
             }
-            if (File.Exists(path)) File.Replace(temp, path, path + ".bak", true);
-            else File.Move(temp, path);
+            for (var attempt = 0; ; attempt++)
+            {
+                try
+                {
+                    if (File.Exists(path)) File.Replace(temp, path, path + ".bak", true);
+                    else File.Move(temp, path);
+                    break;
+                }
+                catch (IOException error) when (SharingViolation(error) && attempt < 20) { Thread.Sleep(10); }
+            }
         }
         finally { if (File.Exists(temp)) File.Delete(temp); }
     }

@@ -5,21 +5,50 @@ $localDotnet=Join-Path $root '.tools\dotnet\dotnet.exe'
 $dotnet=if(Test-Path -LiteralPath $localDotnet){$localDotnet}else{'dotnet'}
 Push-Location $root
 try {
-    $output=Join-Path $OutputRoot $Runtime
+    $output=[IO.Path]::GetFullPath((Join-Path $root (Join-Path $OutputRoot $Runtime)))
+    if(-not $output.StartsWith($root+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase)){throw 'Build output must be inside the repository'}
+    if((Test-Path -LiteralPath $output) -and (Get-ChildItem -LiteralPath $output -Force | Select-Object -First 1)){throw 'Choose an empty output folder; existing builds are preserved'}
     if(-not $SkipTests){
         & $dotnet test tests/Wyrmwatch.Core.Tests -c Release
         if($LASTEXITCODE -ne 0){throw 'Core checks failed'}
         & $dotnet test tests/Wyrmwatch.Desktop.Tests -c Release
         if($LASTEXITCODE -ne 0){throw 'UI smoke checks failed'}
     }
-    & $dotnet publish src/Wyrmwatch.Desktop -c Release -r $Runtime --self-contained true -o $output
+    $staging=Join-Path (Split-Path -Parent $output) ('.publish-'+$Runtime+'-'+[Guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $staging,$output -Force | Out-Null
+    & $dotnet publish src/Wyrmwatch.Desktop -c Release -r $Runtime --self-contained true -o "$staging/desktop"
     if($LASTEXITCODE -ne 0){throw 'Desktop publish failed'}
-    & $dotnet publish src/Wyrmwatch.Agent -c Release -r $Runtime --self-contained true -o "$output/agent"
+    & $dotnet publish src/Wyrmwatch.Agent -c Release -r $Runtime --self-contained true -p:SharedRuntimeLauncher=true -o "$staging/agent"
     if($LASTEXITCODE -ne 0){throw 'Background manager publish failed'}
     if($Runtime -eq 'win-x64'){
-        & $dotnet publish src/Wyrmwatch.Signal -c Release -r $Runtime --self-contained true -o $output
+        & $dotnet publish src/Wyrmwatch.Signal -c Release -r $Runtime --self-contained true -o "$staging/signal"
         if($LASTEXITCODE -ne 0){throw 'Shutdown helper publish failed'}
     }
+    # Share identical runtime/dependency files. A version mismatch must fail the build.
+    $retired=[Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    foreach($component in @('desktop','agent','signal')) {
+        $componentPath=Join-Path $staging $component
+        if(-not (Test-Path -LiteralPath $componentPath)){continue}
+        foreach($file in Get-ChildItem -LiteralPath $componentPath -Recurse -File) {
+            $relative=[IO.Path]::GetRelativePath($componentPath,$file.FullName)
+            $isAgentRoot=$component -eq 'agent' -and [IO.Path]::GetDirectoryName($relative) -eq ''
+            if($isAgentRoot -and $file.Name -notin @('Wyrmwatch.Agent.exe','Wyrmwatch.Agent')) { $null=$retired.Add('agent/'+$file.Name) }
+            if($file.Extension -eq '.pdb') {
+                if(-not $isAgentRoot){$null=$retired.Add($relative.Replace('\','/'))}
+                continue
+            }
+            if($isAgentRoot -and $file.Name -in @('Wyrmwatch.Agent.exe','Wyrmwatch.Agent')){continue}
+            $destination=Join-Path $output $relative
+            if(Test-Path -LiteralPath $destination) {
+                if((Get-FileHash -LiteralPath $file.FullName).Hash -ne (Get-FileHash -LiteralPath $destination).Hash){throw "Conflicting published dependency: $relative"}
+            } else {
+                New-Item -ItemType Directory -Path (Split-Path -Parent $destination) -Force | Out-Null
+                Copy-Item -LiteralPath $file.FullName -Destination $destination
+            }
+        }
+    }
+    # Exact obsolete package paths, used to reclaim space during installer upgrades.
+    @($retired | Sort-Object) | ConvertTo-Json | Set-Content -LiteralPath "$output/retired-package-files.json" -Encoding utf8
     foreach($document in @('README.md','LICENSE','NOTICE','CONTRIBUTING.md','THIRD-PARTY-NOTICES.md')) {
         Copy-Item -LiteralPath $document -Destination "$output/$document"
     }
@@ -91,5 +120,10 @@ try {
         '',
         'Third-party components retain their own licenses. THIRD-PARTY-NOTICES.md lists their versions, notices, and upstream sources.'
     ) | Set-Content -LiteralPath "$output/SOURCE.md" -Encoding utf8
+    $bytes=(Get-ChildItem -LiteralPath $output -Recurse -File | Measure-Object Length -Sum).Sum
+    Write-Host "Application payload: $([math]::Round($bytes/1MB,1)) MiB; one runtime, no debugging-symbol files"
+    $resolvedStaging=(Resolve-Path -LiteralPath $staging).Path
+    if(-not $resolvedStaging.StartsWith((Split-Path -Parent $output)+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase) -or (Split-Path -Leaf $resolvedStaging) -notlike '.publish-*'){throw 'Unexpected staging path; staging files preserved'}
+    Remove-Item -LiteralPath $resolvedStaging -Recurse -Force
     Write-Host "Built: $((Resolve-Path -LiteralPath $output).Path)"
 } finally { Pop-Location }

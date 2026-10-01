@@ -1,4 +1,4 @@
-# Background operation and remote access
+# Background operation
 
 The desktop and agent use the same workspace, saved connections, process ownership records, and safety checks. Closing the window never stops the game. Start with automatic maintenance off while checking your connection and backup location.
 
@@ -36,22 +36,6 @@ bash service/install-linux-service.sh /absolute/app/folder /absolute/private/wor
 
 The script writes a user unit without enabling or starting it. Turn background mode off and quit the desktop when idle, then run `systemctl --user enable --now wyrmwatch`. Use `systemctl --user status wyrmwatch` and `journalctl --user -u wyrmwatch` for diagnostics. To start without logging in, explicitly enable lingering for your user through your distribution's `loginctl` setup. Service stop leaves the child game process running; do not change the supplied `KillMode=process` setting without understanding that consequence.
 
-## Remote dashboard
+## Local access only
 
-Remote access starts off. On the Remote access page, choose an unused port (default 8843), enable HTTPS, and apply. Applying restarts an idle desktop-owned agent. For a registered service or standalone agent, restart it manually when idle. A port or certificate failure keeps local management available and shows the error on this page.
-
-No public relay, tunnel, firewall rule, or router mapping is created. Other devices need a route to the host, such as the same LAN or your existing VPN. The displayed machine-name URL may need your host's LAN address if name resolution is unavailable.
-
-The agent creates a self-signed certificate in the private workspace. Export/open its public `.cer` file and verify its SHA-256 fingerprint against the desktop display before trusting it on another device. Never share `remote-certificate.pfx`, `agent.json`, or the workspace. Replacing the certificate is a manual operation: disable remote access, stop the idle agent, retain the previous certificate files privately, then let a new certificate be generated. Review browser trust again after replacement.
-
-Create a named key with a 1–365 day lifetime. The secret is shown once; only its hash is stored. Restrict it to the selected server or grant access to all connections. Revocation takes effect on the next request; it cannot cancel an operation already accepted.
-
-| Role | Permissions |
-| --- | --- |
-| Viewer | Read server status and backup metadata |
-| Operator | Viewer permissions; start, stop, restart, create backups, and check game updates |
-| Maintainer | Operator permissions; apply game updates and verify/restore backups |
-
-Only the local desktop can edit connection paths, game configuration, remote settings, or access keys. Remote status excludes process paths and activity-log contents. Restore requires the stopped server and typed server-name confirmation, then uses the same backup/retained-folder safeguards as the desktop.
-
-The dashboard keeps keys in tab memory, not URLs or browser storage. Signing out or reloading requires the key again. The footer offers the package's matching source archive and AGPL license.
+The agent binds an authenticated HTTP endpoint only on loopback. Remote control, external HTTPS listeners and access-key management are unavailable. Existing remote settings and certificate files are preserved but not used.
