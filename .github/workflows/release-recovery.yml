@@ -1,0 +1,44 @@
+name: Recover approved release publication
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing approved version tag (never moved or recreated)
+        required: true
+        type: string
+      release_run_id:
+        description: Original tag run with both platform package jobs successful
+        required: true
+        type: string
+      verification_run_id:
+        description: Successful Checks and portable builds push run at current master
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: wyrmwatch-release
+  cancel-in-progress: false
+jobs:
+  recover:
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+          path: release-source
+          persist-credentials: false
+      - name: Publish only the verified original approved candidate
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SOURCE_TAG: ${{ inputs.tag }}
+          RELEASE_RUN: ${{ inputs.release_run_id }}
+          VERIFIED_RUN: ${{ inputs.verification_run_id }}
+        run: python scripts/manage-release.py recover --source-directory release-source --run-id "$RELEASE_RUN" --verification-run-id "$VERIFIED_RUN"

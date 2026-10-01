@@ -164,15 +164,46 @@ class Manager:
         results = self.api.api(f"{self.root}/releases?per_page=100")
         require(len(results) < 100, "Release listing requires pagination; refuse ambiguous lookup")
         matches = [release for release in results if release["tag_name"] == self.tag]
+        # GitHub can return an untagged draft after a body-only readiness update.
+        # Recover only our exact version's receipt, never an arbitrary user draft.
+        for release in results:
+            if not release.get("draft") or not re.fullmatch(r"untagged-[0-9a-f]+", release.get("tag_name", "")):
+                continue
+            body = release.get("body") or ""
+            if MARKER not in body and release.get("name") != "Wyrmwatch " + self.tag:
+                continue
+            markers = re.findall(r"<!-- " + MARKER + r" (.*?) -->", body)
+            if release.get("name") != "Wyrmwatch " + self.tag and len(markers) == 1:
+                candidate = json.loads(markers[0])
+                if candidate.get("repository") != self.repository or candidate.get("version") != self.version:
+                    continue
+            metadata = receipt(body, self.repository, self.version)
+            require(release.get("target_commitish") == metadata["sha"], "Untagged draft target differs from receipt")
+            matches.append(release)
         require(len(matches) <= 1, "Duplicate release tag")
         return matches[0] if matches else None
 
     def owned_draft(self, release_id, metadata):
         release = self.api.api(f"{self.root}/releases/{release_id}")
         actual = receipt(release.get("body"), self.repository, self.version)
-        require(release["draft"] and release["tag_name"] == self.tag and actual == metadata,
+        tag_matches = release["tag_name"] == self.tag or (
+            re.fullmatch(r"untagged-[0-9a-f]+", release["tag_name"])
+            and release.get("target_commitish") == metadata["sha"])
+        require(release["draft"] and tag_matches and actual == metadata,
                 "Draft state changed; refuse to mutate or publish")
         return release
+
+    def tag_commit(self):
+        ref = self.api.api(f"{self.root}/git/ref/tags/{self.tag}")["object"]
+        for _ in range(4):
+            if ref["type"] != "tag":
+                break
+            ref = self.api.api(f"{self.root}/git/tags/{ref['sha']}")["object"]
+        require(ref["type"] == "commit", "Approved tag does not resolve to a commit")
+        return ref["sha"]
+
+    def approved_commit(self):
+        require(self.tag_commit() == self.head, "Approved tag does not point at the tested commit")
 
     def prepare(self, run_id):
         self.checked_run(run_id)
@@ -183,6 +214,11 @@ class Manager:
         old = receipt(existing.get("body"), self.repository, self.version) if existing else None
         if old:
             validate_assets(existing, old, complete=old["phase"] != "preparing")
+        refs = self.api.api(f"{self.root}/git/matching-refs/tags/{self.tag}")
+        if any(ref["ref"] == "refs/tags/" + self.tag for ref in refs):
+            approved = self.tag_commit()
+            if approved != self.head:
+                return f"{self.tag} already approved at {approved}; preserve its candidate and bump the version"
         artifacts = self.api.api(f"{self.root}/actions/runs/{int(run_id)}/artifacts?per_page=100")
         require(artifacts["total_count"] <= 100, "Unexpected artifact count")
         files = {}
@@ -194,7 +230,8 @@ class Manager:
             blob = self.api.download(f"{self.root}/actions/artifacts/{artifact['id']}/zip")
             files.update(unpack_artifact(blob, artifact.get("digest"), expected_files(self.version, runtime)))
         hashes = {name: sha(data) for name, data in files.items()}
-        if old and old["phase"] == "ready" and old["sha"] == self.head and old["assets"] == hashes:
+        if old and old["phase"] == "ready" and old["sha"] == self.head and old["assets"] == hashes \
+                and existing["tag_name"] == self.tag:
             return "Matching draft already ready; no changes"
         previous = {asset["name"]: asset["digest"].removeprefix("sha256:")
                     for asset in existing.get("assets", [])} if existing else {}
@@ -225,18 +262,19 @@ class Manager:
         validate_assets(current, metadata)
         self.current_master()
         metadata = dict(metadata, phase="ready", previous_assets={})
-        self.api.api(f"{self.root}/releases/{release['id']}", "PATCH", {"body": release_body(self.notes, metadata)})
-        return "Verified draft ready; approve its exact commit with " + self.tag
+        self.api.api(f"{self.root}/releases/{release['id']}", "PATCH",
+                     {"tag_name": self.tag, "target_commitish": self.head,
+                      "draft": True, "body": release_body(self.notes, metadata)})
+        confirmed = self.owned_draft(release["id"], metadata)
+        require(confirmed["tag_name"] == self.tag, "GitHub did not preserve the ready draft's version tag")
+        validate_assets(confirmed, metadata)
+        self.current_master()
+        return f"Verified draft {release['id']} ready at {self.head}; approve its exact commit with {self.tag}"
 
     def publish(self, run_id, approved_tag):
         require(approved_tag == self.tag, "Approved tag must match the project version")
         self.checked_run(run_id, packages=True)
-        ref = self.api.api(f"{self.root}/git/ref/tags/{self.tag}")["object"]
-        for _ in range(4):
-            if ref["type"] != "tag":
-                break
-            ref = self.api.api(f"{self.root}/git/tags/{ref['sha']}")["object"]
-        require(ref["type"] == "commit" and ref["sha"] == self.head, "Approved tag does not point at the tested commit")
+        self.approved_commit()
         release = self.find_release()
         require(release is not None, "Wait for the verified master draft before publishing this tag")
         metadata = receipt(release.get("body"), self.repository, self.version)
@@ -250,31 +288,56 @@ class Manager:
         self.owned_draft(release["id"], metadata)
         metadata = dict(metadata, phase="published")
         published = self.api.api(f"{self.root}/releases/{release['id']}", "PATCH",
-                                {"body": release_body(self.notes, metadata), "draft": False, "make_latest": "true"})
-        require(not published["draft"] and receipt(published.get("body"), self.repository, self.version) == metadata,
+                                {"tag_name": self.tag, "target_commitish": self.head,
+                                 "body": release_body(self.notes, metadata), "draft": False, "make_latest": "true"})
+        require(not published["draft"] and published["tag_name"] == self.tag
+                and receipt(published.get("body"), self.repository, self.version) == metadata,
                 "GitHub did not confirm publication")
         validate_assets(published, metadata)
         return "Published verified " + self.tag + " from " + self.head
 
+    def recover(self, run_id, approved_tag, verification_run_id, verified_head):
+        # Recovery runs reviewed orchestration from current green master, but the
+        # release source/assets remain pinned to the original approved tag.
+        verifier = Manager(self.api, self.repository, self.version, verified_head, self.notes)
+        verifier.checked_run(verification_run_id)
+        verifier.current_master()
+        return self.publish(run_id, approved_tag)
+
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("mode", choices=("prepare", "publish"))
+    parser.add_argument("mode", choices=("prepare", "publish", "recover"))
     parser.add_argument("--run-id", type=int, required=True)
+    parser.add_argument("--verification-run-id", type=int)
+    parser.add_argument("--source-directory", choices=("release-source",))
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
-    version = ET.parse(root / "Directory.Build.props").findtext("PropertyGroup/Version")
+    source = root / "release-source" if args.mode == "recover" else root
+    if args.mode == "recover":
+        require(args.source_directory == "release-source" and args.verification_run_id is not None,
+                "Recovery requires its pinned source checkout and successful current master run")
+        require(os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
+                and os.environ.get("GITHUB_REF") == "refs/heads/master",
+                "Recovery requires explicit dispatch from trusted master")
+    else:
+        require(args.source_directory is None and args.verification_run_id is None,
+                "Source overrides are restricted to explicit approved-tag recovery")
+    version = ET.parse(source / "Directory.Build.props").findtext("PropertyGroup/Version")
     require(version is not None and re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version), "Invalid project version")
-    head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
+    head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=source, text=True).strip()
     manager = Manager(Gh(), os.environ["GITHUB_REPOSITORY"], version, head,
-                      (root / "docs/releases" / ("v" + version + ".md")).read_text(encoding="utf-8"))
+                      (source / "docs/releases" / ("v" + version + ".md")).read_text(encoding="utf-8"))
     if args.mode == "prepare":
         require(os.environ.get("GITHUB_EVENT_NAME") == "workflow_run", "Draft preparation requires workflow_run")
         result = manager.prepare(args.run_id)
-    else:
+    elif args.mode == "publish":
         require(os.environ.get("GITHUB_EVENT_NAME") == "push" and os.environ.get("GITHUB_REF_TYPE") == "tag",
                 "Public publication requires an explicitly pushed version tag")
         result = manager.publish(args.run_id, os.environ["GITHUB_REF_NAME"])
+    else:
+        verified_head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
+        result = manager.recover(args.run_id, os.environ["SOURCE_TAG"], args.verification_run_id, verified_head)
     print(result)
 
 

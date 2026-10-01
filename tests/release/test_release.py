@@ -3,10 +3,12 @@ import copy
 import importlib.util
 import io
 import json
+import os
 import stat
 import unittest
 import zipfile
 from pathlib import Path
+from unittest.mock import patch
 
 import yaml
 
@@ -49,6 +51,12 @@ class FakeGh:
         self.failed_master = self.failed_packages = False
         self.master_event = "push"
         self.foreign_repository = False
+        self.tag_exists = False
+        self.lose_tag_on_body_update = False
+        self.lose_tag_on_every_update = False
+        self.damage_ready_update = False
+        self.verification_head = HEAD
+        self.extra_releases = []
 
     def api(self, path, method="GET", payload=None):
         prefix = "repos/" + REPOSITORY
@@ -58,13 +66,17 @@ class FakeGh:
         if path == "/branches/master":
             return {"commit": {"sha": self.master}}
         if path == "/releases?per_page=100":
-            return [copy.deepcopy(self.release)] if self.release else []
+            return ([copy.deepcopy(self.release)] if self.release else []) + copy.deepcopy(self.extra_releases)
         if path == "/releases" and method == "POST":
             self.release = dict(payload, id=10, assets=[])
             return copy.deepcopy(self.release)
         if path == "/releases/10":
             if method == "PATCH":
                 self.release.update(payload)
+                if self.lose_tag_on_every_update or (self.lose_tag_on_body_update and "tag_name" not in payload):
+                    self.release["tag_name"] = "untagged-e544df8a98720da5ed9b"
+                if self.damage_ready_update and '"phase": "ready"' in payload.get("body", ""):
+                    self.release["assets"][0]["digest"] = "sha256:" + "0" * 64
             elif self.publish_on_read:
                 self.release["draft"] = False
             return copy.deepcopy(self.release)
@@ -74,15 +86,19 @@ class FakeGh:
             return None
         if path == "/git/ref/tags/v" + VERSION:
             return {"object": {"type": "commit", "sha": self.tag_sha}}
-        if path in ("/actions/runs/1", "/actions/runs/2"):
+        if path == "/git/matching-refs/tags/v" + VERSION:
+            return [{"ref": "refs/tags/v" + VERSION}] if self.tag_exists else []
+        if path in ("/actions/runs/1", "/actions/runs/2", "/actions/runs/3"):
             package = path.endswith("2")
-            return dict(event="push" if package else self.master_event, head_sha=self.head,
+            return dict(event="push" if package else self.master_event,
+                        head_sha=self.verification_head if path.endswith("3") else self.head,
                         head_branch="v" + VERSION if package else "master",
                         head_repository={"full_name": "foreign/repo" if self.foreign_repository else REPOSITORY},
                         path=".github/workflows/release.yml" if package else ".github/workflows/build.yml",
                         status="in_progress" if package else "completed",
                         conclusion=None if package else ("failure" if self.failed_master else "success"))
-        if path in ("/actions/runs/1/jobs?per_page=100", "/actions/runs/2/jobs?per_page=100"):
+        if path in ("/actions/runs/1/jobs?per_page=100", "/actions/runs/2/jobs?per_page=100",
+                    "/actions/runs/3/jobs?per_page=100"):
             package = "/2/" in path
             return {"total_count": 2, "jobs": [dict(name=name, status="completed",
                     conclusion="failure" if (self.failed_packages if package else self.failed_master) else "success")
@@ -124,6 +140,113 @@ class ReleaseTests(unittest.TestCase):
         self.manager.prepare(1)
         self.assertEqual(writes, len(self.api.mutations))
         self.assertEqual(8, self.api.uploads)
+
+    def test_readiness_patch_preserves_tag_and_verifies_final_state(self):
+        self.api.lose_tag_on_body_update = True
+        result = self.manager.prepare(1)
+        self.assertEqual("v" + VERSION, self.api.release["tag_name"])
+        self.assertIn("draft 10 ready at " + HEAD, result)
+        self.manager.publish(2, "v" + VERSION)
+        self.assertEqual("v" + VERSION, self.api.release["tag_name"])
+        self.assertFalse(self.api.release["draft"])
+
+    def test_invalid_readiness_update_is_not_reported_as_ready(self):
+        for attribute in ("lose_tag_on_every_update", "damage_ready_update"):
+            with self.subTest(attribute=attribute):
+                self.setUp()
+                setattr(self.api, attribute, True)
+                with self.assertRaises(release.ReleaseError):
+                    self.manager.prepare(1)
+                self.assertTrue(self.api.release["draft"])
+
+    def test_owned_untagged_ready_draft_publishes_only_verified_original_assets(self):
+        self.ready()
+        self.api.release["tag_name"] = "untagged-e544df8a98720da5ed9b"
+        assets = copy.deepcopy(self.api.release["assets"])
+        writes = len(self.api.mutations)
+        self.manager.publish(2, "v" + VERSION)
+        self.assertEqual(assets, self.api.release["assets"])
+        self.assertEqual("v" + VERSION, self.api.release["tag_name"])
+        self.assertEqual(writes + 1, len(self.api.mutations))
+        self.assertEqual("PATCH", self.api.mutations[-1][1])
+
+    def test_owned_untagged_draft_can_be_prepared_without_duplicates(self):
+        self.ready()
+        self.api.release["tag_name"] = "untagged-e544df8a98720da5ed9b"
+        self.manager.prepare(1)
+        self.assertEqual("v" + VERSION, self.api.release["tag_name"])
+        self.assertEqual(8, self.api.uploads)
+        self.assertEqual(1, sum(method == "POST" for _, method, _ in self.api.mutations))
+
+    def test_unknown_or_changed_untagged_draft_is_never_published(self):
+        for alteration in ("body", "target", "sha", "assets", "phase"):
+            with self.subTest(alteration=alteration):
+                self.setUp(); self.ready()
+                self.api.release["tag_name"] = "untagged-e544df8a98720da5ed9b"
+                if alteration == "body": self.api.release["body"] = "User draft"
+                elif alteration == "target": self.api.release["target_commitish"] = "b" * 40
+                elif alteration == "sha":
+                    self.api.release["target_commitish"] = "b" * 40
+                    self.api.release["body"] = self.api.release["body"].replace(HEAD, "b" * 40)
+                elif alteration == "assets": self.api.release["assets"].pop()
+                else: self.api.release["body"] = self.api.release["body"].replace('"ready"', '"preparing"')
+                writes = len(self.api.mutations)
+                with self.assertRaises(release.ReleaseError): self.manager.publish(2, "v" + VERSION)
+                self.assertEqual(writes, len(self.api.mutations))
+
+    def test_preparation_never_overwrites_an_already_approved_different_source(self):
+        self.ready()
+        self.api.tag_exists = True
+        self.api.master = self.api.head = "b" * 40
+        writes = len(self.api.mutations)
+        result = release.Manager(self.api, REPOSITORY, VERSION, "b" * 40, "Notes").prepare(1)
+        self.assertIn("preserve its candidate", result)
+        self.assertEqual(writes, len(self.api.mutations))
+
+    def test_explicit_recovery_uses_green_master_code_but_original_tag_source(self):
+        self.ready()
+        self.api.release["tag_name"] = "untagged-e544df8a98720da5ed9b"
+        self.api.master = self.api.verification_head = "b" * 40
+        self.manager.recover(2, "v" + VERSION, 3, "b" * 40)
+        self.assertFalse(self.api.release["draft"])
+        metadata = release.receipt(self.api.release["body"], REPOSITORY, VERSION)
+        self.assertEqual(HEAD, metadata["sha"])
+        self.assertEqual(1, metadata["run_id"])
+
+    def test_recovery_refuses_failed_or_stale_or_foreign_master_verification(self):
+        for alteration in ("failed", "stale", "foreign", "wrong_tag"):
+            with self.subTest(alteration=alteration):
+                self.setUp(); self.ready()
+                self.api.master = self.api.verification_head = "b" * 40
+                if alteration == "failed": self.api.failed_master = True
+                elif alteration == "stale": self.api.master = "c" * 40
+                elif alteration == "foreign": self.api.foreign_repository = True
+                else: self.api.tag_sha = "c" * 40
+                writes = len(self.api.mutations)
+                with self.assertRaises(release.ReleaseError):
+                    self.manager.recover(2, "v" + VERSION, 3, "b" * 40)
+                self.assertEqual(writes, len(self.api.mutations))
+
+    def test_duplicate_owned_candidate_is_refused(self):
+        self.ready()
+        duplicate = copy.deepcopy(self.api.release)
+        duplicate["tag_name"] = "untagged-e544df8a98720da5ed9b"
+        duplicate["id"] = 11
+        self.api.extra_releases.append(duplicate)
+        writes = len(self.api.mutations)
+        with self.assertRaises(release.ReleaseError): self.manager.publish(2, "v" + VERSION)
+        self.assertEqual(writes, len(self.api.mutations))
+
+    def test_unrelated_untagged_candidate_is_not_adopted(self):
+        self.ready()
+        unrelated = copy.deepcopy(self.api.release)
+        unrelated["tag_name"] = "untagged-e544df8a98720da5ed9b"
+        unrelated["name"] = "Wyrmwatch v9.9.9"
+        unrelated["body"] = unrelated["body"].replace('"version": "0.2.3"', '"version": "9.9.9"')
+        unrelated["id"] = 11
+        self.api.extra_releases.append(unrelated)
+        self.manager.publish(2, "v" + VERSION)
+        self.assertEqual(unrelated, self.api.extra_releases[0])
 
     def test_approved_tag_publishes_prepared_assets_once(self):
         self.ready()
@@ -297,6 +420,44 @@ class WorkflowPolicyTests(unittest.TestCase):
         self.assertEqual({"contents": "write", "actions": "read"}, job["permissions"])
         self.assertIn("manage-release.py publish", job["steps"][-1]["run"])
         self.assertNotIn("gh release create", str(workflow))
+
+    def test_recovery_requires_explicit_master_dispatch_and_green_run(self):
+        workflow = self.load("release-recovery.yml")
+        self.assertEqual(["workflow_dispatch"], list(workflow["on"]))
+        self.assertEqual({"tag", "release_run_id", "verification_run_id"},
+                         set(workflow["on"]["workflow_dispatch"]["inputs"]))
+        self.assertEqual(self.load("release.yml")["concurrency"], workflow["concurrency"])
+        job = workflow["jobs"]["recover"]
+        self.assertEqual("github.ref == 'refs/heads/master'", job["if"])
+        self.assertEqual({"contents": "write", "actions": "read"}, job["permissions"])
+        self.assertEqual("release-source", job["steps"][1]["with"]["path"])
+        for checkout in job["steps"][:2]:
+            self.assertEqual("false", checkout["with"]["persist-credentials"])
+        self.assertIn("--verification-run-id", job["steps"][-1]["run"])
+
+    def test_recovery_cli_refuses_untrusted_event_or_branch_before_reads(self):
+        for event, ref in (("push", "refs/heads/master"),
+                           ("workflow_dispatch", "refs/heads/sjarrett/fixture")):
+            with self.subTest(event=event, ref=ref), \
+                    patch("sys.argv", ["manage-release.py", "recover", "--run-id", "2",
+                         "--verification-run-id", "3", "--source-directory", "release-source"]), \
+                    patch.dict(os.environ, GITHUB_EVENT_NAME=event, GITHUB_REF=ref), \
+                    patch.object(release.subprocess, "check_output") as git, \
+                    patch.object(release.Gh, "api") as api:
+                with self.assertRaises(release.ReleaseError): release.main()
+                git.assert_not_called()
+                api.assert_not_called()
+
+    def test_normal_modes_refuse_recovery_source_override_before_reads(self):
+        for mode in ("prepare", "publish"):
+            with self.subTest(mode=mode), \
+                    patch("sys.argv", ["manage-release.py", mode, "--run-id", "1",
+                                       "--source-directory", "release-source"]), \
+                    patch.object(release.subprocess, "check_output") as git, \
+                    patch.object(release.Gh, "api") as api:
+                with self.assertRaises(release.ReleaseError): release.main()
+                git.assert_not_called()
+                api.assert_not_called()
 
 
 if __name__ == "__main__":
