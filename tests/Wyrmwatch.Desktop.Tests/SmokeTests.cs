@@ -23,7 +23,7 @@ public class TestApp
         .AfterSetup(_ => FontManager.Current.AddFontCollection(new Avalonia.Media.Fonts.EmbeddedFontCollection(
             new Uri("fonts:SystemFonts"), new Uri("avares://Wyrmwatch.Desktop/Assets/NoSystemFonts"))));
 }
-public class SmokeTests
+public class SmokeTests : IsolatedDesktopTest
 {
     [AvaloniaFact]
     public async Task WorldImportRequiresStoppedSourceAndRejectsConfigurationSaveWithoutSideEffects()

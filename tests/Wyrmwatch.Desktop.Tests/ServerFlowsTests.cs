@@ -19,7 +19,7 @@ namespace Wyrmwatch.Desktop.Tests;
 
 // Real desktop events -> AgentClient -> authenticated HTTP routes -> persisted files.
 // Steam and the game process are the only substitutes; every path is a disposable fixture.
-public class ServerFlowsTests
+public class ServerFlowsTests : IsolatedDesktopTest
 {
     [AvaloniaFact]
     public async Task ImportWizardRecoversOwnedPreparedSnapshotAfterOriginalSourceDisappears()

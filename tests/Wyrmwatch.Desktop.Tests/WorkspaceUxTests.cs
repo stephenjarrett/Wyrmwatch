@@ -17,7 +17,7 @@ using Wyrmwatch.Desktop;
 
 namespace Wyrmwatch.Desktop.Tests;
 
-public class WorkspaceUxTests
+public class WorkspaceUxTests : IsolatedDesktopTest
 {
     [AvaloniaFact]
     public async Task RefusedStartKeepsConfirmedStoppedStateAndPointsToObservedRunningServer()

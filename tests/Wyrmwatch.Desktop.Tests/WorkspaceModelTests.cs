@@ -3,7 +3,7 @@ using Wyrmwatch.Desktop;
 
 namespace Wyrmwatch.Desktop.Tests;
 
-public class WorkspaceModelTests
+public class WorkspaceModelTests : IsolatedDesktopTest
 {
     [Fact]
     public void AnotherObservedServerBlocksStartWithDestinationAndUnknownStateStaysBlocked()

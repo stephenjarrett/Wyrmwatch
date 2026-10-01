@@ -15,7 +15,7 @@ namespace Wyrmwatch.Desktop.Tests;
 
 // Actual headless wizard controls, synthetic saves and callback gates only.
 // No game installation, Steam download, server process or user data is used.
-public class CreateWizardUxTests
+public class CreateWizardUxTests : IsolatedDesktopTest
 {
     [AvaloniaFact]
     public async Task KeyboardTabAndEnterAdvanceOnlyBeforeReviewAndEscapeClosesWhenIdle()
