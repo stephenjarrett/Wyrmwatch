@@ -52,7 +52,8 @@ public sealed class MaintenanceService(IServerRuntime runtime, ISteamClient stea
         var record = new OperationRecord(Guid.NewGuid().ToString("N"), profile.Id, profile.Name, action, DateTimeOffset.Now, null, "Running", "Starting…");
         try
         {
-            using var lease = InstallationLease.Acquire(profile.InstallPath);
+            using var lease = ServerOperationLease.Acquire(profile);
+            if (action is not "Recover interrupted restore" and not "Stop server" and not "Check for updates") backups.EnsureNoPendingRestore(profile);
             profile.Validate(); Busy = true; History.Save(record); Changed?.Invoke(); WriteLog($"{profile.Name}: {action}");
             var result = await body();
             History.Save(record with { Finished = DateTimeOffset.Now, Status = result.StartsWith("Waiting", StringComparison.Ordinal) ? "Deferred" : "Succeeded", Detail = result });
@@ -80,6 +81,11 @@ public sealed class MaintenanceService(IServerRuntime runtime, ISteamClient stea
         var before = await runtime.InspectAsync(p);
         if (!before.Accessible) throw new IOException("Cannot verify server state.");
         if (!before.Running) return "The server is already stopped.";
+        if (!restart && backups.HasPendingRestore(p))
+        {
+            await runtime.StopAsync(p);
+            return "Server stopped. Recover the interrupted restore before starting or changing files.";
+        }
         await backups.CreateAsync(p, restart ? "Before restart" : "Before stop", true);
         await runtime.StopAsync(p);
         await backups.CreateAsync(p, "After shutdown", false);
@@ -137,6 +143,8 @@ public sealed class MaintenanceService(IServerRuntime runtime, ISteamClient stea
         var recovery = await backups.RestoreAsync(p, archive, async () => { var state = await runtime.InspectAsync(p); return state.Accessible && !state.Running; });
         return $"Backup restored. Previous files retained in {recovery}. The server remains stopped.";
     });
+    public Task<string> RecoverRestoreAsync(ServerProfile p) => ExecuteAsync(p, "Recover interrupted restore", () =>
+        backups.RecoverInterruptedRestoreAsync(p, async () => { var state = await runtime.InspectAsync(p); return state.Accessible && !state.Running; }));
     public async Task TickAsync(IReadOnlyList<ServerProfile> profiles, CancellationToken token = default)
     {
         if (Busy) return;

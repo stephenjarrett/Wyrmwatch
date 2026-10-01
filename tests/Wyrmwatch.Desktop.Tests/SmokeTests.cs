@@ -17,10 +17,124 @@ namespace Wyrmwatch.Desktop.Tests;
 
 public class TestApp
 {
-    public static AppBuilder BuildAvaloniaApp() => AppBuilder.Configure<App>().WithInterFont().UseSkia().UseHeadless(new AvaloniaHeadlessPlatformOptions { UseHeadlessDrawing = false });
+    public static AppBuilder BuildAvaloniaApp() => Program.ConfigureFonts(AppBuilder.Configure<App>()).UseSkia()
+        .UseHeadless(new AvaloniaHeadlessPlatformOptions { UseHeadlessDrawing = false })
+        // An empty system collection forces every rendered UI flow to use bundled fonts.
+        .AfterSetup(_ => FontManager.Current.AddFontCollection(new Avalonia.Media.Fonts.EmbeddedFontCollection(
+            new Uri("fonts:SystemFonts"), new Uri("avares://Wyrmwatch.Desktop/Assets/NoSystemFonts"))));
 }
 public class SmokeTests
 {
+    [AvaloniaFact]
+    public async Task WorldImportRequiresStoppedSourceAndRejectsConfigurationSaveWithoutSideEffects()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "wyrmwatch-ui-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root); var source = Path.Combine(root, "InputSettings.sav"); File.WriteAllText(source, "GVASconfiguration fixture");
+        var bytes = File.ReadAllBytes(source); var calls = 0;
+        var dialog = new CreateServerDialog([], (_, _) => throw new InvalidOperationException("Import must not invoke Create"), root,
+            (_, _, _) => { calls++; return Task.CompletedTask; }); dialog.Show();
+        try
+        {
+            Field<TextBox>(dialog, "CreateOwnerId").Text = "dummy-owner";
+            Field<TextBox>(dialog, "ImportWorldSource").Text = source;
+            await dialog.AdvanceAsync(); Assert.Contains("closed the game", Field<TextBlock>(dialog, "CreateMessage").Text);
+            Field<CheckBox>(dialog, "ImportSourceStopped").IsChecked = true;
+            await dialog.AdvanceAsync(); Assert.False(string.IsNullOrEmpty(Field<TextBlock>(dialog, "CreateMessage").Text));
+            Assert.Equal(0, calls); Assert.Equal(bytes, File.ReadAllBytes(source));
+            Assert.False(Directory.Exists(Path.Combine(root, "WyrmwatchServers"))); Assert.False(Directory.Exists(Path.Combine(root, "WyrmwatchBackups")));
+            Field<TextBox>(dialog, "ImportWorldSource").Text = Path.Combine(root, "another.sav");
+            Assert.False(Field<CheckBox>(dialog, "ImportSourceStopped").IsChecked);
+        }
+        finally { dialog.Close(); Directory.Delete(root, true); }
+    }
+
+    [AvaloniaFact]
+    public void ResourceValuesKeepReadableContrastInBothThemes()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "wyrmwatch-ui-" + Guid.NewGuid().ToString("N"));
+        Program.HeadlessTest = true; Program.Demo = false; Program.DataDirectory = root;
+        var originalTheme = Application.Current!.RequestedThemeVariant;
+        var window = new MainWindow(); window.Show();
+        try
+        {
+            var model = (WorkspaceModel)window.DataContext!;
+            var profile = new ServerProfile { Name = "Resource display fixture", InstallPath = Path.Combine(root, "server"), BackupPath = Path.Combine(root, "backups") };
+            model.Profiles.Add(profile); model.SelectedProfile = profile; model.SyncRows();
+            model.Cpu = "12.5%"; model.Memory = "1.4 GB"; model.Notice = "Headless fixture — illustrative resource values; no game process is running.";
+            window.ShowPage(WorkspacePage.Resources);
+            foreach (var theme in new[] { ThemeVariant.Dark, ThemeVariant.Light })
+            {
+                Application.Current.RequestedThemeVariant = theme; window.UpdateLayout(); Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+                foreach (var name in new[] { "CpuMetricText", "MemoryMetricText" })
+                {
+                    var value = Field<TextBlock>(window, name);
+                    var foreground = Assert.IsAssignableFrom<ISolidColorBrush>(value.Foreground).Color;
+                    var background = Assert.IsAssignableFrom<ISolidColorBrush>(value.GetLogicalAncestors().OfType<Border>().First().Background).Color;
+                    var first = Luminance(foreground); var second = Luminance(background);
+                    Assert.True((Math.Max(first, second) + 0.05) / (Math.Min(first, second) + 0.05) >= 4.5, $"{theme} {name} contrast below 4.5:1.");
+                }
+                var directory = Environment.GetEnvironmentVariable("WYRM_TEST_SCREENSHOTS");
+                if (!string.IsNullOrWhiteSpace(directory))
+                {
+                    Directory.CreateDirectory(directory); AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+                    using var frame = window.CaptureRenderedFrame(); Assert.NotNull(frame);
+                    frame.Save(Path.Combine(directory, theme == ThemeVariant.Dark ? "resources-dark.png" : "resources-light.png"), Avalonia.Media.Imaging.PngBitmapEncoderOptions.Default);
+                }
+            }
+        }
+        finally { window.Close(); Application.Current.RequestedThemeVariant = originalTheme; if (Directory.Exists(root)) Directory.Delete(root, true); }
+    }
+
+    [AvaloniaFact]
+    public void RecoveryStateBlocksStartAndRestartAndShowsAStoppedRecoveryActionInBothThemes()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "wyrmwatch-ui-" + Guid.NewGuid().ToString("N"));
+        Program.HeadlessTest = true; Program.Demo = false; Program.DataDirectory = root;
+        var originalTheme = Application.Current!.RequestedThemeVariant;
+        var window = new MainWindow(); window.Show();
+        try
+        {
+            var model = (WorkspaceModel)window.DataContext!;
+            var profile = new ServerProfile { Name = "Interrupted restore fixture", InstallPath = Path.Combine(root, "long installation folder", "server"), BackupPath = Path.Combine(root, "backups") };
+            model.Profiles.Add(profile); model.SelectedProfile = profile; model.SyncRows();
+            model.ServerRunning = false; model.RecoveryPending = true;
+            model.Status = "Recovery required"; model.Notice = "Headless interrupted-restore fixture — no game process is running.";
+            Assert.False(Field<Button>(window, "StartButton").IsEnabled);
+            Assert.False(Field<Button>(window, "RestartButton").IsEnabled);
+            Assert.Contains("interrupted restore", model.ActionHint);
+            window.ShowPage(WorkspacePage.Backups);
+            Assert.True(Field<Button>(window, "RecoverRestoreButton").IsEffectivelyVisible);
+            Assert.True(Field<Button>(window, "RecoverRestoreButton").IsEnabled);
+            Assert.False(Field<Button>(window, "RestoreBackupButton").IsEnabled);
+            foreach (var theme in new[] { ThemeVariant.Dark, ThemeVariant.Light })
+            {
+                Application.Current.RequestedThemeVariant = theme;
+                window.UpdateLayout(); Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+                var directory = Environment.GetEnvironmentVariable("WYRM_TEST_SCREENSHOTS");
+                if (!string.IsNullOrWhiteSpace(directory))
+                {
+                    Directory.CreateDirectory(directory); AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+                    using var frame = window.CaptureRenderedFrame(); Assert.NotNull(frame);
+                    frame.Save(Path.Combine(directory, theme == ThemeVariant.Dark ? "recovery-dark.png" : "recovery-light.png"), Avalonia.Media.Imaging.PngBitmapEncoderOptions.Default);
+                }
+            }
+            model.ServerRunning = true;
+            Assert.False(Field<Button>(window, "RecoverRestoreButton").IsEnabled);
+            Assert.True(Field<Button>(window, "StopButton").IsEnabled);
+            Assert.False(Field<Button>(window, "RestartButton").IsEnabled);
+            model.RecoveryPending = false; model.ServerRunning = false;
+            Assert.True(Field<Button>(window, "StartButton").IsEnabled);
+            Assert.False(Field<Button>(window, "ApplyGameUpdateButton").IsEnabled);
+            Assert.Contains("installed Steam build", model.UpdateHint);
+            model.InstalledBuildKnown = true;
+            Assert.True(Field<Button>(window, "ApplyGameUpdateButton").IsEnabled);
+            model.Busy = true;
+            Assert.False(Field<Button>(window, "ApplyGameUpdateButton").IsEnabled);
+            Assert.Contains("in progress", model.ActionHint);
+        }
+        finally { window.Close(); Application.Current.RequestedThemeVariant = originalTheme; if (Directory.Exists(root)) Directory.Delete(root, true); }
+    }
+
     [AvaloniaFact]
     public async Task ImportReviewsFoldersAndPastedLauncherPathsWithoutExecutingOrChangingFiles()
     {
@@ -76,9 +190,9 @@ public class SmokeTests
             await dialog.AdvanceAsync();
             Assert.Equal("carter-s-new-world", Field<TextBox>(dialog, "CreateFolderName").Text);
             await dialog.AdvanceAsync();
-            var review = Field<TextBlock>(dialog, "CreateReview").Text!;
-            Assert.Contains(Path.Combine(root, "WyrmwatchServers", "carter-s-new-world"), review);
-            Assert.Contains(Path.Combine(root, "WyrmwatchServers", "carter-s-new-world", "RSDragonwilds", "Saved"), review);
+            var review = string.Join("\n", dialog.GetLogicalDescendants().OfType<TextBlock>().Where(t => t.IsEffectivelyVisible).Select(t => t.Text));
+            Assert.Equal(Path.Combine(root, "WyrmwatchServers", "carter-s-new-world"), Field<TextBlock>(dialog, "ReviewInstallPath").Text);
+            Assert.Equal(Path.Combine(root, "WyrmwatchServers", "carter-s-new-world", "RSDragonwilds", "Saved"), Field<TextBlock>(dialog, "ReviewSavedPath").Text);
             Assert.Contains("automatic updates off", review);
             Assert.DoesNotContain(Field<TextBox>(dialog, "CreateAdminPassword").Text!, review);
             dialog.Close();
@@ -91,7 +205,7 @@ public class SmokeTests
     public async Task CreateWizardUsesAChildOfPopulatedParentAndSubmitsOnlyAfterConfirmation()
     {
         var root = Path.Combine(Path.GetTempPath(), "wyrmwatch-ui-" + Guid.NewGuid().ToString("N"));
-        var parent = Path.Combine(root, "games"); Directory.CreateDirectory(parent);
+        var parent = Path.Combine(root, "WyrmwatchServers"); Directory.CreateDirectory(parent);
         var existing = Path.Combine(parent, "existing.sav"); File.WriteAllText(existing, "preserved");
         ServerCreationPlan? submitted = null;
         var dialog = new CreateServerDialog([], (plan, report) => { submitted = plan; report("Fixture download complete"); return Task.CompletedTask; }, root); dialog.Show();
@@ -99,7 +213,8 @@ public class SmokeTests
         {
             Field<TextBox>(dialog, "CreateOwnerId").Text = "owner-fixture";
             await dialog.AdvanceAsync();
-            Field<TextBox>(dialog, "CreateParentFolder").Text = parent;
+            Assert.True(Field<TextBox>(dialog, "CreateManagedLocations").IsReadOnly);
+            Assert.DoesNotContain(dialog.GetLogicalDescendants().OfType<Button>(), b => Equals(b.Content, "Choose folder…"));
             await dialog.AdvanceAsync(); Assert.Null(submitted);
             Assert.Single(Directory.EnumerateFileSystemEntries(parent));
             Assert.Equal("Create Server", Field<Button>(dialog, "CreateNext").Content);
@@ -131,7 +246,7 @@ public class SmokeTests
             await dialog.AdvanceAsync();
             Assert.Equal(0, calls);
             Assert.Contains("already contains files", Field<TextBlock>(dialog, "CreateMessage").Text);
-            Assert.Contains("Import existing server", Field<TextBlock>(dialog, "CreateMessage").Text);
+            Assert.Contains("Import a world", Field<TextBlock>(dialog, "CreateMessage").Text);
             Assert.Equal("keep world", File.ReadAllText(world)); Assert.Single(Directory.EnumerateFiles(target));
             Assert.False(Directory.Exists(Path.Combine(root, "WyrmwatchBackups")));
         }
@@ -168,6 +283,9 @@ public class SmokeTests
         try
         {
             var nav = window.FindControl<ListBox>("Navigation")!;
+            var model = (WorkspaceModel)window.DataContext!;
+            var backupList = Field<ListBox>(window, "BackupList");
+            model.Backups.Add(new(new BackupInfo(Path.Combine(root, "fixture.zip"), new BackupManifest(1, BackupEngine.Product, "fixture installation", "fixture profile", "fixture saves", DateTimeOffset.UtcNow, "Contrast fixture", false, []), 0)));
             foreach (var theme in new[] { ThemeVariant.Dark, ThemeVariant.Light, ThemeVariant.Dark })
             {
                 Application.Current.RequestedThemeVariant = theme;
@@ -182,6 +300,17 @@ public class SmokeTests
                     var first = Luminance(foreground); var second = Luminance(background);
                     var contrast = (Math.Max(first, second) + 0.05) / (Math.Min(first, second) + 0.05);
                     Assert.True(contrast >= 4.5, $"{theme} navigation contrast was {contrast:F2}:1.");
+                }
+                window.ShowPage(WorkspacePage.Backups); backupList.SelectedIndex = 0;
+                window.UpdateLayout(); Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+                var backupItem = Assert.IsType<ListBoxItem>(backupList.ContainerFromIndex(0));
+                var backupBackground = Assert.IsAssignableFrom<ISolidColorBrush>(backupItem.GetVisualDescendants().OfType<ContentPresenter>().First().Background).Color;
+                foreach (var label in backupItem.GetLogicalDescendants().OfType<TextBlock>())
+                {
+                    var foreground = Assert.IsAssignableFrom<ISolidColorBrush>(label.Foreground).Color;
+                    var first = Luminance(foreground); var second = Luminance(backupBackground);
+                    var contrast = (Math.Max(first, second) + 0.05) / (Math.Min(first, second) + 0.05);
+                    Assert.True(contrast >= 4.5, $"{theme} selected backup contrast was {contrast:F2}:1.");
                 }
             }
         }
@@ -337,7 +466,32 @@ public class SmokeTests
         var root = Path.Combine(Path.GetTempPath(), "wyrmwatch-ui-" + Guid.NewGuid().ToString("N"));
         Program.HeadlessTest = true; Program.Demo = false; Program.DataDirectory = root;
         var window = new MainWindow(); window.Show();
-        try { var model = Assert.IsType<WorkspaceModel>(window.DataContext); Assert.Empty(model.Profiles); Assert.True(model.NoServer); Assert.False(model.CanAct); }
+        try
+        {
+            var model = Assert.IsType<WorkspaceModel>(window.DataContext); Assert.Empty(model.Profiles); Assert.True(model.NoServer); Assert.False(model.CanAct);
+            Assert.Contains("Create a server or import a world", model.Notice);
+            var hint = window.FindControl<TextBlock>("EmptyServersHint")!;
+            Assert.True(hint.IsEffectivelyVisible);
+            Assert.Contains("world save", hint.Text); Assert.Contains("new managed installation", hint.Text);
+            Assert.DoesNotContain("existing installation", hint.Text);
+            var originalTheme = Application.Current!.RequestedThemeVariant;
+            try
+            {
+                foreach (var theme in new[] { ThemeVariant.Dark, ThemeVariant.Light })
+                {
+                    Application.Current.RequestedThemeVariant = theme;
+                    window.UpdateLayout(); Avalonia.Threading.Dispatcher.UIThread.RunJobs(); AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+                    using var frame = window.CaptureRenderedFrame(); Assert.NotNull(frame);
+                    var directory = Environment.GetEnvironmentVariable("WYRM_TEST_SCREENSHOTS");
+                    if (!string.IsNullOrWhiteSpace(directory))
+                    {
+                        Directory.CreateDirectory(directory);
+                        frame.Save(Path.Combine(directory, theme == ThemeVariant.Dark ? "empty-servers-dark.png" : "empty-servers-light.png"), Avalonia.Media.Imaging.PngBitmapEncoderOptions.Default);
+                    }
+                }
+            }
+            finally { Application.Current.RequestedThemeVariant = originalTheme; }
+        }
         finally { window.Close(); if (Directory.Exists(root)) Directory.Delete(root, true); }
     }
 }

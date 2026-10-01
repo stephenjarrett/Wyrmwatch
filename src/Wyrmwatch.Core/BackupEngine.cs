@@ -4,7 +4,7 @@ using System.Text.Json;
 
 namespace Wyrmwatch.Core;
 
-public sealed class BackupEngine
+public sealed partial class BackupEngine
 {
     // Persisted archive-format identifier: retain compatibility with existing recovery points.
     public const string Product = "Dragonwilds.NativeManager";
@@ -12,6 +12,7 @@ public sealed class BackupEngine
     public async Task<BackupInfo> CreateAsync(ServerProfile profile, string reason, bool running, CancellationToken token = default)
     {
         profile.Validate();
+        EnsureNoPendingRestore(profile);
         SafePaths.NoLinks(profile.SavedPath);
         var files = SourceFiles(profile).ToArray();
         if (files.Length == 0) throw new IOException("No save or configuration files were found. No backup was created.");
@@ -68,6 +69,7 @@ public sealed class BackupEngine
     }
     public void Prune(ServerProfile profile)
     {
+        EnsureNoPendingRestore(profile);
         // Only our completed archives belonging to this profile and this exact installation are eligible.
         foreach (var old in List(profile).Skip(profile.RetainBackups))
         {
@@ -138,9 +140,11 @@ public sealed class BackupEngine
     public async Task<string> RestoreAsync(ServerProfile profile, string archive, Func<Task<bool>> isStopped, CancellationToken token = default)
     {
         profile.Validate();
+        EnsureNoPendingRestore(profile);
         var manifest = await VerifyAsync(archive, profile, token);
         if (!await isStopped()) throw new IOException("Stop the server before restoring a backup.");
-        await CreateAsync(profile, "Before restore", false, token);
+        // A missing/empty tree is a legitimate recovery target, not a failed backup.
+        if (SourceFiles(profile).Any()) await CreateAsync(profile, "Before restore", false, token);
         var parent = Path.GetDirectoryName(SafePaths.Full(profile.SavedPath))!;
         var stage = Path.Combine(parent, ".restore-" + Guid.NewGuid().ToString("N"));
         var previous = Path.Combine(parent, ".recovery-" + DateTime.UtcNow.ToString("yyyyMMdd-HHmmss") + "-" + Guid.NewGuid().ToString("N"));
@@ -153,32 +157,45 @@ public sealed class BackupEngine
                 Directory.CreateDirectory(Path.GetDirectoryName(path)!);
                 await using (var input = zip.GetEntry(file.Entry)!.Open())
                 await using (var output = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None))
-                { await input.CopyToAsync(output, token); await output.FlushAsync(token); }
+                { await input.CopyToAsync(output, token); await output.FlushAsync(token); output.Flush(true); }
                 await using var staged = File.OpenRead(path);
                 if (Convert.ToHexString(await SHA256.HashDataAsync(staged, token)) != file.Sha256) throw new IOException("Staged restore integrity failed. Active game files were not changed.");
             }
         }
         if (!await isStopped()) throw new IOException("The server started during restore preparation. Nothing was replaced.");
         token.ThrowIfCancellationRequested();
-        // Move whole directories so newer saves cannot silently win over the restored world.
-        // Originals are retained in recovery, and rollback preserves all staged data on any failure.
-        var moved = new List<string>(); var installed = new List<string>();
+        // Config-only recovery points preserve worlds. World recovery points replace the
+        // complete covered tree, including folders absent from that recovery point.
+        var covered = RestoreFolders(manifest);
+        var originals = await InventoryAsync(profile, covered, token);
+        if (!await isStopped()) throw new IOException("The server started during restore preparation. Nothing was replaced.");
+        token.ThrowIfCancellationRequested();
+        var transaction = new RestoreTransaction(SafePaths.Full(profile.SavedPath), stage, previous,
+            covered.ToDictionary(f => f, f => Directory.Exists(Path.Combine(profile.SavedPath, f))),
+            covered.ToDictionary(f => f, f => Directory.Exists(Path.Combine(stage, f))), originals, manifest.Files);
+        WriteTransaction(profile, transaction);
+        RestoreCheckpoint?.Invoke("Journal");
         try
         {
-            foreach (var folder in folders)
+            foreach (var folder in covered)
             {
+                if (!await isStopped()) throw new IOException("The server started during restore. Stop it before recovering the interrupted restore.");
                 var incoming = Path.Combine(stage, folder);
-                if (!Directory.Exists(incoming)) continue;
                 var destination = Path.Combine(profile.SavedPath, folder);
                 SafePaths.NoLinks(destination); Directory.CreateDirectory(profile.SavedPath);
-                if (Directory.Exists(destination)) { Directory.Move(destination, Path.Combine(previous, folder)); moved.Add(folder); }
-                Directory.Move(incoming, destination); installed.Add(folder);
+                if (Directory.Exists(destination)) { Directory.Move(destination, Path.Combine(previous, folder)); RestoreCheckpoint?.Invoke("Retained:" + folder); }
+                if (Directory.Exists(incoming)) { Directory.Move(incoming, destination); RestoreCheckpoint?.Invoke("Installed:" + folder); }
             }
+            await VerifyActiveAsync(profile, transaction with { Committed = true }, CancellationToken.None);
+            WriteTransaction(profile, transaction with { Committed = true });
+            RestoreCheckpoint?.Invoke("Committed");
+            DeleteTransaction(profile);
         }
-        catch
+        catch (Exception error) when (error is not RestoreInterruptedException)
         {
-            foreach (var folder in installed) Directory.Move(Path.Combine(profile.SavedPath, folder), Path.Combine(stage, folder));
-            foreach (var folder in moved) Directory.Move(Path.Combine(previous, folder), Path.Combine(profile.SavedPath, folder));
+            // Ordinary failures attempt rollback. If rollback itself fails, the durable
+            // journal remains and subsequent starts/writes must remain blocked.
+            await RecoverInterruptedRestoreAsync(profile, isStopped, CancellationToken.None);
             throw;
         }
         return previous;

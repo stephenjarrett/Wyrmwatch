@@ -7,11 +7,15 @@ public sealed record AgentEndpoint(int ProcessId, string StartToken, string Addr
 public sealed record AgentParent(int Id, string StartToken);
 public sealed record ManagedServer(string Id, string Name, ServerSnapshot State, ScheduleState Schedule, string? Build)
 {
+    public bool RecoveryRequired { get; init; }
     public string[] Actions { get; init; } = ["start", "stop", "restart", "backup", "check", "update", "verify", "restore"];
 }
 public sealed record AgentStatus(bool Busy, string Version, List<ManagedServer> Servers, List<OperationRecord> Operations, List<string> Log, bool Background, string? RemoteAddress, bool PersistentHost = false);
 public sealed record ServerAction(string Action, string? Archive = null, Dictionary<string, string>? Values = null, string? Confirmation = null);
 public sealed record CreateServerRequest(ServerProfile Profile, Dictionary<string, string> Configuration);
+public sealed record WorldImportRequest(ServerProfile Profile, Dictionary<string, string> Configuration, WorldImportPlan Source, bool SourceStoppedConfirmed = false);
+public sealed record ResumeSetupRequest(string InstallPath, string ReceiptToken);
+public sealed record ReviewSetupRequest(string InstallPath);
 public sealed record ActionResult(string Message);
 public static class AccessPolicy
 {
@@ -28,11 +32,12 @@ public static class AccessPolicy
 
 public static class WorkspaceLease
 {
+    public const string OwnershipFailureMessage = "A background manager already owns this workspace.";
     public static FileStream Acquire(string directory)
     {
         Directory.CreateDirectory(directory); SafePaths.NoLinks(directory);
         try { return new FileStream(Path.Combine(directory, "agent.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None); }
-        catch (IOException) { throw new IOException("A background manager already owns this workspace."); }
+        catch (IOException) { throw new IOException(OwnershipFailureMessage); }
     }
     public static void Protect(string path)
     {
