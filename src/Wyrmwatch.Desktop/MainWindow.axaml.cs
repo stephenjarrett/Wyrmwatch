@@ -218,9 +218,7 @@ public partial class MainWindow : Window
         try
         {
             var list = await Task.Run(() => backups.List(p)); if (refreshVersion != backupRefreshVersion || p.Id != model.SelectedProfile?.Id) return;
-            var selectedArchive = (BackupList.SelectedItem as BackupRow)?.Info.Path;
-            model.Backups.Clear(); foreach (var item in list) model.Backups.Add(new(item));
-            BackupList.SelectedItem = model.Backups.FirstOrDefault(row => row.Info.Path == selectedArchive);
+            model.SyncBackups(list);
             model.BackupSummary = list.Count == 0 ? "No recovery points yet" : $"{list.Count} recovery points · latest {list[0].Manifest.Created.LocalDateTime:MMM d, h:mm tt}";
         }
         catch (Exception e) { if (refreshVersion == backupRefreshVersion && p.Id == model.SelectedProfile?.Id) model.Notice = e.Message; }
@@ -263,7 +261,7 @@ public partial class MainWindow : Window
                 FinishTrackedOperation(result, false, "State unverified");
             }
         }
-        finally { model.Busy = service.Busy; await RefreshBackupsAsync(); RefreshHistory(); }
+        finally { await RefreshBackupsAsync(); RefreshHistory(); model.Busy = service.Busy; }
     }
     private async Task SaveSettingsAsync() { if (!Program.Demo) await service!.SavePreferencesAsync(settings); }
     private async Task ReplaceProfileAsync(ServerProfile p)

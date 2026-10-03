@@ -166,8 +166,10 @@ public class ServerFlowsTests : IsolatedDesktopTest
         window.ShowPage(WorkspacePage.Backups);
         var list = Field<ListBox>(window, "BackupList"); list.SelectedIndex = 0;
         var selectedArchive = Assert.IsType<BackupRow>(list.SelectedItem).Info.Path;
+        var selectedBackup = list.SelectedItem;
         await window.RefreshServersAsync();
         Assert.Equal(selectedArchive, Assert.IsType<BackupRow>(list.SelectedItem).Info.Path);
+        Assert.Same(selectedBackup, list.SelectedItem);
         Capture(window, "backups-dark.png");
         Click(window, Field<Button>(window, "RestoreBackupButton")); await Accept(window, "Restore backup");
         await Until(() => model.Notice.StartsWith("Backup restored") && !model.Busy);
