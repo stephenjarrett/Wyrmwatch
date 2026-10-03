@@ -1,7 +1,7 @@
 """Trusted master orchestration: discover verified source and package checks.
 
 AutomaticRelease coordinates immutable patch versions/tags around this policy.
-No manual run-ID inputs, CI reruns, credential setup or downloaded code execution.
+Internal exact-run callbacks need no manual input, CI reruns or downloaded code execution.
 """
 import base64
 import importlib.util
@@ -9,6 +9,7 @@ import json
 import os
 import re
 import subprocess
+import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -62,6 +63,33 @@ class Handoff:
                 if self.trusted(run, manager, packages):
                     runs[run["id"]] = run
         return list(runs.values())
+
+    def await_callback(self, value, attempts=25, interval=5):
+        # The notifying job is still running when its dispatch is accepted.
+        # Wait only for that exact trusted run; no release writes or CI reruns.
+        policy.require(re.fullmatch(r"[1-9][0-9]{0,19}", value or ""), "Invalid callback run ID")
+        self.manager.ensure_release_allowed()
+        run_id = int(value)
+        for attempt in range(attempts):
+            run = self.api.api(f"{self.root}/actions/runs/{run_id}")
+            policy.require(run.get("id") == run_id
+                           and (run.get("head_repository") or {}).get("full_name") == self.manager.repository
+                           and run.get("event") in {"push", "workflow_dispatch"}
+                           and run.get("head_branch") == "master"
+                           and run.get("path") in {".github/workflows/build.yml", ".github/workflows/release.yml"}
+                           and (run["path"] != ".github/workflows/release.yml" or run["event"] == "workflow_dispatch"),
+                           "Callback must identify same-repository trusted master verification")
+            if run.get("head_sha") != self.manager.head:
+                return None
+            self.manager.current_master()
+            if run.get("status") == "completed":
+                self.trigger(run_id)  # Reject failed source checks and abnormal package completions.
+                return run_id
+            policy.require(run.get("status") in {"queued", "in_progress", "pending", "waiting", "requested"}
+                           and run.get("conclusion") is None, "Invalid callback verification state")
+            policy.require(attempt + 1 < attempts, "Callback verification did not complete within two minutes")
+            time.sleep(interval)
+        raise policy.ReleaseError("Invalid callback wait configuration")
 
     def trigger(self, run_id):
         run = self.api.api(f"{self.root}/actions/runs/{int(run_id)}")
@@ -158,6 +186,10 @@ def main():
     policy.require(event in {"workflow_run", "workflow_dispatch", "schedule"}
                    and os.environ.get("GITHUB_REF") == "refs/heads/master",
                    "Automatic handoff executes only trusted default-branch orchestration")
+    callback = os.environ.get("COMPLETED_RUN_ID", "")
+    policy.require(not callback or (event == "workflow_dispatch"
+                                   and re.fullmatch(r"[1-9][0-9]{0,19}", callback)),
+                   "Callback run ID is valid only on trusted master dispatch")
     head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
     version = ET.parse(ROOT / "Directory.Build.props").findtext("PropertyGroup/Version")
     manager = policy.Manager(policy.Gh(), os.environ["GITHUB_REPOSITORY"], version, head,
@@ -171,7 +203,13 @@ def main():
                        "Workflow event repository differs")
         run_id = int(payload["workflow_run"]["id"])
     from automatic_release import AutomaticRelease
-    result = AutomaticRelease(Handoff(manager), policy).run(run_id)
+    coordinator = Handoff(manager)
+    if callback:
+        run_id = coordinator.await_callback(callback)
+        result = (AutomaticRelease(coordinator, policy).run(run_id) if run_id is not None
+                  else "Stale or superseded callback; no release changes")
+    else:
+        result = AutomaticRelease(coordinator, policy).run(run_id)
     print(result)
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary:

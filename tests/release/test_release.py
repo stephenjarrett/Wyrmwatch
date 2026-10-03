@@ -400,13 +400,13 @@ class WorkflowPolicyTests(unittest.TestCase):
         trigger = draft["on"]["workflow_run"]
         self.assertNotIn("branches", trigger)
         self.assertEqual(["completed"], trigger["types"])
-        self.assertEqual(["Checks and portable builds", "Release portable builds"], trigger["workflows"])
+        self.assertEqual(["Release portable builds"], trigger["workflows"])
         self.assertNotEqual(draft["concurrency"]["group"], public["concurrency"]["group"])
         self.assertEqual("false", draft["concurrency"]["cancel-in-progress"])
         self.assertEqual("false", public["concurrency"]["cancel-in-progress"])
         self.assertIn("inputs.approved_tag || github.ref_name", public["concurrency"]["group"])
         job = draft["jobs"]["handoff"]
-        for guard in ("conclusion == 'success'", "event == 'push'", "head_branch == 'master'",
+        for guard in ("conclusion == 'success'", "event == 'push'", "head_branch, 'v'",
                       "head_repository.full_name == github.repository"):
             self.assertIn(guard, job["if"])
         self.assertEqual({"contents": "write", "actions": "write"}, job["permissions"])
@@ -423,20 +423,23 @@ class WorkflowPolicyTests(unittest.TestCase):
         self.assertIn("inputs.source_sha", workflow["run-name"])
         self.assertEqual({"contents": "read"}, workflow["permissions"])
         self.assertNotIn("publish", workflow["jobs"])
-        self.assertEqual(["package"], list(workflow["jobs"]))
+        self.assertEqual(["package", "notify-handoff"], list(workflow["jobs"]))
         self.assertNotIn("gh release create", str(workflow))
 
     def test_recovery_requires_explicit_master_dispatch_and_green_run(self):
         workflow = self.load("release-handoff.yml")
         self.assertEqual({"workflow_dispatch", "workflow_run", "schedule"}, set(workflow["on"]))
-        self.assertEqual("", workflow["on"]["workflow_dispatch"])
+        callback = workflow["on"]["workflow_dispatch"]["inputs"]
+        self.assertEqual({"completed_run_id"}, set(callback))
+        self.assertEqual("false", callback["completed_run_id"]["required"])
+        self.assertEqual("", callback["completed_run_id"]["default"])
         self.assertNotEqual(self.load("release.yml")["concurrency"]["group"], workflow["concurrency"]["group"])
         job = workflow["jobs"]["handoff"]
         self.assertIn("github.ref == 'refs/heads/master'", job["if"])
         self.assertEqual({"contents": "write", "actions": "write"}, job["permissions"])
         self.assertEqual("false", job["steps"][0]["with"]["persist-credentials"])
         self.assertEqual("python scripts/release-handoff.py", job["steps"][-1]["run"])
-        self.assertNotIn("inputs.", str(workflow))
+        self.assertIn("inputs.completed_run_id", job["steps"][-1]["env"]["COMPLETED_RUN_ID"])
 
     def test_recovery_cli_refuses_untrusted_event_or_branch_before_reads(self):
         for event, ref in (("push", "refs/heads/master"),
