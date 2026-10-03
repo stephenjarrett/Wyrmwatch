@@ -80,3 +80,29 @@ jobs:
             dist/Wyrmwatch-*.deb
             dist/Wyrmwatch-*.sha256
           if-no-files-found: error
+  notify-handoff:
+    name: Notify trusted release handoff
+    needs: build
+    if: >-
+      needs.build.result == 'success' && github.ref == 'refs/heads/master' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - uses: actions/github-script@v8
+        with:
+          retries: 0
+          script: |
+            if (context.ref !== 'refs/heads/master' || !['push', 'workflow_dispatch'].includes(context.eventName)) {
+              throw new Error('Release callbacks require trusted master verification');
+            }
+            if (!Number.isSafeInteger(context.runId) || context.runId <= 0) {
+              throw new Error('Invalid verification run ID');
+            }
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'release-handoff.yml',
+              ref: 'master',
+              inputs: { completed_run_id: String(context.runId) }
+            });

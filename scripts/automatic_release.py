@@ -131,9 +131,25 @@ class AutomaticRelease:
                                 "Cannot verify complete orchestration repair")
             trees.append({e["path"]: (e["mode"], e["type"], e["sha"]) for e in tree["tree"] if e["type"] != "tree"})
         changed = {p for p in trees[0].keys() | trees[1].keys() if trees[0].get(p) != trees[1].get(p)}
-        allowed = {".github/workflows/release.yml", ".github/workflows/release-handoff.yml",
+        allowed = {".github/workflows/build.yml", ".github/workflows/release.yml", ".github/workflows/release-handoff.yml",
                    "scripts/manage-release.py", "scripts/release-handoff.py", "scripts/automatic_release.py",
                    "docs/releasing.md"}
+        if ".github/workflows/build.yml" in changed:
+            # Build/package changes are release inputs. Only an appended final
+            # notification job may differ without creating a new app release.
+            prefixes = []
+            for head in (source, self.manager.head):
+                content = self.handoff.source_text(".github/workflows/build.yml", head)
+                marker = "\n  notify-handoff:\n"
+                self.policy.require(content.count(marker) <= 1, "Ambiguous build callback job")
+                prefix, separator, callback = content.partition(marker)
+                if separator:
+                    self.policy.require(all(not line.strip() or line.startswith("    ")
+                                            for line in callback.splitlines()),
+                                        "Build callback must be the final job")
+                prefixes.append(prefix.rstrip("\n"))
+            if prefixes[0] != prefixes[1]:
+                return False
         return bool(changed) and all(p in allowed or p.startswith("tests/release/") for p in changed)
 
     def next_version(self, releases, refs):
@@ -180,6 +196,11 @@ class AutomaticRelease:
             self.policy.require(metadata["phase"] == "published" and approved == metadata["sha"]
                                 and self.orchestration_only(metadata["sha"]), "Invalid covered orchestration repair")
             return "Matching release already published under this verified orchestration; no changes"
+        if (used_elsewhere and exact and metadata and not candidate["draft"] and metadata["phase"] == "published"
+                and approved == metadata["sha"] and self.orchestration_only(approved)):
+            # A reviewed controller-only fix has no new application to publish.
+            # Preserve the original public receipt/assets; never fabricate a test patch.
+            return "Matching release already published; orchestration-only change requires no patch"
         if (used_elsewhere and exact and metadata and candidate["draft"] and metadata["phase"] == "ready"
                 and approved == metadata["sha"] and self.orchestration_only(approved)):
             self.handoff.cover_control = True
