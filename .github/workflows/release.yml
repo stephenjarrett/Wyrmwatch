@@ -1,4 +1,5 @@
 name: Release portable builds
+run-name: ${{ github.event_name == 'workflow_dispatch' && format('Package {0} at {1}', inputs.approved_tag, inputs.source_sha) || github.ref_name }}
 on:
   push:
     tags: ['v*']
@@ -6,6 +7,10 @@ on:
     inputs:
       approved_tag:
         description: 'Immutable version tag prepared by trusted master orchestration'
+        required: true
+        type: string
+      source_sha:
+        description: 'Exact immutable source commit; must match the checked-out tag'
         required: true
         type: string
 permissions:
@@ -40,10 +45,13 @@ jobs:
         shell: pwsh
         env:
           APPROVED_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.approved_tag || github.ref_name }}
+          APPROVED_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.source_sha || github.sha }}
         run: |
           [xml]$props = Get-Content Directory.Build.props
-          if ($env:APPROVED_TAG -cne "v$($props.Project.PropertyGroup.Version)") { throw 'Tag must match the project version' }
-          if ((git rev-parse HEAD) -cne $env:GITHUB_SHA) { throw 'Tag checkout must match the exact workflow source commit' }
+          $versions = $props.SelectNodes('/Project/PropertyGroup/Version')
+          if ($versions.Count -ne 1 -or $versions[0].InnerText -cnotmatch '^[0-9]+\.[0-9]+\.[0-9]+$') { throw 'Exactly one numeric project version is required' }
+          if ($env:APPROVED_TAG -cne "v$($versions[0].InnerText)") { throw 'Tag must match the project version' }
+          if ($env:APPROVED_SHA -cnotmatch '^[0-9a-f]{40}$' -or (git rev-parse HEAD) -cne $env:APPROVED_SHA) { throw 'Tag checkout must match the exact approved source commit' }
       - name: Test and build
         shell: pwsh
         run: ./scripts/build.ps1 -Runtime ${{ matrix.runtime }}

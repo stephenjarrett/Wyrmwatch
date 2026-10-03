@@ -110,6 +110,9 @@ def receipt(body, repository, version):
     for inventory in (result["assets"], result.get("previous_assets", {})):
         require(set(inventory) <= expected_files(version) and all(re.fullmatch(r"[0-9a-f]{64}", value)
                 for value in inventory.values()), "Invalid receipt digest inventory")
+    if "control_sha" in result:
+        require(result["phase"] == "published" and re.fullmatch(r"[0-9a-f]{40}", result["control_sha"]),
+                "Invalid verified orchestration receipt")
     return result
 
 
@@ -162,7 +165,7 @@ class Gh:
 
 
 class Manager:
-    def __init__(self, api, repository, version, head, notes):
+    def __init__(self, api, repository, version, head, notes, control_head=None):
         require(re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository), "Invalid repository")
         require(re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version), "Invalid release version")
         require(re.fullmatch(r"[0-9a-f]{40}", head), "Invalid source revision")
@@ -170,20 +173,35 @@ class Manager:
         self.api, self.repository, self.version, self.head, self.notes = api, repository, version, head, notes
         self.root = f"repos/{repository}"
         self.tag = "v" + version
+        self.control_head = control_head or head
+        require(re.fullmatch(r"[0-9a-f]{40}", self.control_head), "Invalid trusted orchestration revision")
+        self.cover_control = False
+
+    def package_title(self):
+        return f"Package {self.tag} at {self.head}"
+
+    def trusted_run(self, run, packages=False):
+        branch = self.tag if packages else "master"
+        path = ".github/workflows/release.yml" if packages else ".github/workflows/build.yml"
+        source = run.get("head_sha") == self.head
+        provenance = run.get("event") == "push" and run.get("head_branch") == branch and source
+        if run.get("event") == "workflow_dispatch" and run.get("head_branch") == "master":
+            if packages:
+                provenance = (run.get("head_sha") == self.control_head
+                              and (run.get("display_title") == self.package_title()
+                                   or (self.control_head == self.head and source)))
+            else:
+                provenance = source
+        return (provenance and run.get("path") == path
+                and (run.get("head_repository") or {}).get("full_name") == self.repository)
 
     def ensure_release_allowed(self):
         ensure_release_allowed(self.version)
 
     def checked_run(self, run_id, packages=False):
         run = self.api.api(f"{self.root}/actions/runs/{int(run_id)}")
-        expected_branch = self.tag if packages else "master"
-        expected_path = ".github/workflows/release.yml" if packages else ".github/workflows/build.yml"
-        provenance = ((run["event"] == "push" and run["head_branch"] == expected_branch)
-                      or (run["event"] == "workflow_dispatch" and run["head_branch"] == "master"))
-        require(provenance
-                and run["head_sha"] == self.head and run["path"] == expected_path
-                and run["head_repository"]["full_name"] == self.repository,
-                "Only this repository's exact master/tag verification run is trusted")
+        require(self.trusted_run(run, packages),
+                "Only exact source checks or pinned packages from trusted master are accepted")
         if not packages:
             require(run["status"] == "completed" and run["conclusion"] == "success", "Master checks not successful")
         jobs = self.api.api(f"{self.root}/actions/runs/{int(run_id)}/jobs?per_page=100")
@@ -338,6 +356,8 @@ class Manager:
             _before_publish()
         self.ensure_release_allowed()
         metadata = dict(metadata, phase="published")
+        if self.cover_control:
+            metadata["control_sha"] = self.control_head
         published = self.api.api(f"{self.root}/releases/{release['id']}", "PATCH",
                                 {"tag_name": self.tag, "target_commitish": self.head,
                                  "body": release_body(self.notes, metadata), "draft": False, "make_latest": "true"})
