@@ -1,6 +1,7 @@
-"""Trusted master orchestration: discover checks, prepare drafts, publish approved tags.
+"""Trusted master orchestration: discover verified source and package checks.
 
-No run-ID inputs, tag writes, reruns, credential setup, or downloaded code execution.
+AutomaticRelease coordinates immutable patch versions/tags around this policy.
+No manual run-ID inputs, CI reruns, credential setup or downloaded code execution.
 """
 import base64
 import importlib.util
@@ -23,18 +24,15 @@ class Handoff:
         self.api, self.root = manager.api, manager.root
 
     def trusted(self, run, manager, packages=False):
-        return (run.get("event") == "push" and run.get("head_sha") == manager.head
-                and run.get("head_branch") == (manager.tag if packages else "master")
+        provenance = ((run.get("event") == "push" and run.get("head_branch") == (manager.tag if packages else "master"))
+                      or (run.get("event") == "workflow_dispatch" and run.get("head_branch") == "master"))
+        return (provenance and run.get("head_sha") == manager.head
                 and run.get("path") == (".github/workflows/release.yml" if packages else ".github/workflows/build.yml")
                 and (run.get("head_repository") or {}).get("full_name") == manager.repository)
 
     def discover(self, manager, packages=False):
-        branch = manager.tag if packages else "master"
-        result = self.api.api(f"{self.root}/actions/runs?branch={branch}"
-                              f"&event=push&head_sha={manager.head}&per_page=100")
-        policy.require(result["total_count"] <= 100, "Run discovery requires pagination; refuse ambiguous results")
-        matches = [run for run in result["workflow_runs"] if self.trusted(run, manager, packages)
-                   and run.get("status") == "completed"]
+        matches = [run for run in self.runs(manager, packages)
+                   if run.get("status") == "completed"]
         # Reruns have the same run ID and latest attempt; distinct completed push
         # runs are ambiguous, even if one passed. Never select by arbitrary order.
         policy.require(len(matches) <= 1, "Multiple matching push runs; publication is blocked")
@@ -57,20 +55,33 @@ class Handoff:
                                "Only a legacy publisher failure can be recovered automatically")
         return int(run["id"])
 
+    def runs(self, manager, packages=False):
+        runs = {}
+        for branch in ([manager.tag, "master"] if packages else ["master"]):
+            result = self.api.api(f"{self.root}/actions/runs?branch={branch}"
+                                  f"&head_sha={manager.head}&per_page=100")
+            policy.require(result["total_count"] <= 100, "Run discovery requires pagination; refuse ambiguous results")
+            for run in result["workflow_runs"]:
+                if self.trusted(run, manager, packages):
+                    runs[run["id"]] = run
+        return list(runs.values())
+
     def trigger(self, run_id):
         run = self.api.api(f"{self.root}/actions/runs/{int(run_id)}")
-        policy.require(run.get("event") == "push" and run.get("status") == "completed"
+        policy.require(run.get("event") in {"push", "workflow_dispatch"} and run.get("status") == "completed"
                        and (run.get("head_repository") or {}).get("full_name") == self.manager.repository,
-                       "Only completed same-repository push events are trusted")
+                       "Only completed same-repository verification events are trusted")
         if run.get("path") == ".github/workflows/build.yml":
             policy.require(run.get("head_branch") == "master" and run.get("conclusion") == "success",
                            "Master trigger must be a successful master push run")
             return run if run.get("head_sha") == self.manager.head else None
         policy.require(run.get("path") == ".github/workflows/release.yml"
                        and run.get("conclusion") in {"success", "failure"}
-                       and re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+", run.get("head_branch", "")),
+                       and ((run.get("event") == "push" and re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+", run.get("head_branch", "")))
+                            or (run.get("event") == "workflow_dispatch" and run.get("head_branch") == "master")),
                        "Tag trigger must be a version-tag package run")
-        return run if run["head_branch"] == self.manager.tag else None
+        return run if (run["head_branch"] == self.manager.tag or
+                       (run["event"] == "workflow_dispatch" and run["head_sha"] == self.manager.head)) else None
 
     def source_text(self, path, head):
         data = self.api.api(f"{self.root}/contents/{path}?ref={head}")
@@ -144,7 +155,7 @@ class Handoff:
 
 def main():
     event = os.environ.get("GITHUB_EVENT_NAME")
-    policy.require(event in {"workflow_run", "workflow_dispatch"}
+    policy.require(event in {"workflow_run", "workflow_dispatch", "schedule"}
                    and os.environ.get("GITHUB_REF") == "refs/heads/master",
                    "Automatic handoff executes only trusted default-branch orchestration")
     head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
@@ -159,7 +170,8 @@ def main():
         policy.require(payload.get("repository", {}).get("full_name") == manager.repository,
                        "Workflow event repository differs")
         run_id = int(payload["workflow_run"]["id"])
-    result = Handoff(manager).run(run_id)
+    from automatic_release import AutomaticRelease
+    result = AutomaticRelease(Handoff(manager), policy).run(run_id)
     print(result)
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary:

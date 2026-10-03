@@ -4,6 +4,8 @@ on:
     workflows: [Checks and portable builds, Release portable builds]
     types: [completed]
   workflow_dispatch:
+  schedule:
+    - cron: '17 * * * *'
 permissions:
   contents: read
   actions: read
@@ -13,18 +15,19 @@ concurrency:
 jobs:
   handoff:
     if: >-
-      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master') ||
+      ((github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && github.ref == 'refs/heads/master') ||
       (github.event.workflow_run.head_repository.full_name == github.repository &&
-       github.event.workflow_run.event == 'push' &&
+       (github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'workflow_dispatch') &&
        ((github.event.workflow_run.path == '.github/workflows/build.yml' &&
          github.event.workflow_run.head_branch == 'master' && github.event.workflow_run.conclusion == 'success') ||
         (github.event.workflow_run.path == '.github/workflows/release.yml' &&
-         startsWith(github.event.workflow_run.head_branch, 'v') &&
+         (startsWith(github.event.workflow_run.head_branch, 'v') ||
+          (github.event.workflow_run.event == 'workflow_dispatch' && github.event.workflow_run.head_branch == 'master')) &&
          (github.event.workflow_run.conclusion == 'success' || github.event.workflow_run.conclusion == 'failure'))))
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      actions: read
+      actions: write
     steps:
       - uses: actions/checkout@v4
         with:

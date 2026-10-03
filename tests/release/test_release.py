@@ -395,25 +395,30 @@ class WorkflowPolicyTests(unittest.TestCase):
     def load(self, name):
         return yaml.load((ROOT / ".github/workflows" / name).read_text(), Loader=yaml.BaseLoader)
 
-    def test_draft_scope_and_shared_non_cancelling_lock(self):
+    def test_writer_and_packages_use_separate_non_cancelling_locks(self):
         draft = self.load("release-handoff.yml"); public = self.load("release.yml")
         trigger = draft["on"]["workflow_run"]
         self.assertNotIn("branches", trigger)
         self.assertEqual(["completed"], trigger["types"])
         self.assertEqual(["Checks and portable builds", "Release portable builds"], trigger["workflows"])
-        self.assertEqual(draft["concurrency"], public["concurrency"])
+        self.assertNotEqual(draft["concurrency"]["group"], public["concurrency"]["group"])
         self.assertEqual("false", draft["concurrency"]["cancel-in-progress"])
+        self.assertEqual("false", public["concurrency"]["cancel-in-progress"])
+        self.assertIn("inputs.approved_tag || github.ref_name", public["concurrency"]["group"])
         job = draft["jobs"]["handoff"]
         for guard in ("conclusion == 'success'", "event == 'push'", "head_branch == 'master'",
                       "head_repository.full_name == github.repository"):
             self.assertIn(guard, job["if"])
-        self.assertEqual({"contents": "write", "actions": "read"}, job["permissions"])
+        self.assertEqual({"contents": "write", "actions": "write"}, job["permissions"])
         self.assertEqual("master", job["steps"][0]["with"]["ref"])
         self.assertEqual("false", job["steps"][0]["with"]["persist-credentials"])
 
     def test_publication_requires_tag_and_both_package_jobs(self):
         workflow = self.load("release.yml")
-        self.assertEqual({"push": {"tags": ["v*"]}}, workflow["on"])
+        self.assertEqual({"tags": ["v*"]}, workflow["on"]["push"])
+        self.assertEqual("true", workflow["on"]["workflow_dispatch"]["inputs"]["approved_tag"]["required"])
+        step = next(s for s in workflow["jobs"]["package"]["steps"] if s.get("name") == "Validate release version")
+        self.assertIn("$env:GITHUB_SHA", step["run"])
         self.assertEqual({"contents": "read"}, workflow["permissions"])
         self.assertNotIn("publish", workflow["jobs"])
         self.assertEqual(["package"], list(workflow["jobs"]))
@@ -421,12 +426,12 @@ class WorkflowPolicyTests(unittest.TestCase):
 
     def test_recovery_requires_explicit_master_dispatch_and_green_run(self):
         workflow = self.load("release-handoff.yml")
-        self.assertEqual({"workflow_dispatch", "workflow_run"}, set(workflow["on"]))
+        self.assertEqual({"workflow_dispatch", "workflow_run", "schedule"}, set(workflow["on"]))
         self.assertEqual("", workflow["on"]["workflow_dispatch"])
-        self.assertEqual(self.load("release.yml")["concurrency"], workflow["concurrency"])
+        self.assertNotEqual(self.load("release.yml")["concurrency"]["group"], workflow["concurrency"]["group"])
         job = workflow["jobs"]["handoff"]
         self.assertIn("github.ref == 'refs/heads/master'", job["if"])
-        self.assertEqual({"contents": "write", "actions": "read"}, job["permissions"])
+        self.assertEqual({"contents": "write", "actions": "write"}, job["permissions"])
         self.assertEqual("false", job["steps"][0]["with"]["persist-credentials"])
         self.assertEqual("python scripts/release-handoff.py", job["steps"][-1]["run"])
         self.assertNotIn("inputs.", str(workflow))
