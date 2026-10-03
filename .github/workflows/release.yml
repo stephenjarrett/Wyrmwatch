@@ -2,13 +2,20 @@ name: Release portable builds
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      approved_tag:
+        description: 'Immutable version tag prepared by trusted master orchestration'
+        required: true
+        type: string
 permissions:
   contents: read
 concurrency:
-  group: wyrmwatch-release
+  group: wyrmwatch-package-${{ inputs.approved_tag || github.ref_name }}
   cancel-in-progress: false
 jobs:
   package:
+    if: github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/master'
     strategy:
       matrix:
         include:
@@ -19,6 +26,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && format('refs/tags/{0}', inputs.approved_tag) || github.ref }}
+          persist-credentials: false
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
@@ -28,9 +38,12 @@ jobs:
           python -m unittest discover -s tests/release -v
       - name: Validate release version
         shell: pwsh
+        env:
+          APPROVED_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.approved_tag || github.ref_name }}
         run: |
           [xml]$props = Get-Content Directory.Build.props
-          if ($env:GITHUB_REF_NAME -cne "v$($props.Project.PropertyGroup.Version)") { throw 'Tag must match the project version' }
+          if ($env:APPROVED_TAG -cne "v$($props.Project.PropertyGroup.Version)") { throw 'Tag must match the project version' }
+          if ((git rev-parse HEAD) -cne $env:GITHUB_SHA) { throw 'Tag checkout must match the exact workflow source commit' }
       - name: Test and build
         shell: pwsh
         run: ./scripts/build.ps1 -Runtime ${{ matrix.runtime }}

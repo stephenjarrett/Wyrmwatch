@@ -1,7 +1,7 @@
 """Prepare verified master artifacts as a draft; publish only an approved matching tag.
 
 Uses the runner's normal gh session. Downloaded artifacts are data, never executed.
-Both workflows share a non-cancelling concurrency group. Published releases are immutable.
+Release writers share a non-cancelling concurrency group. Published releases are immutable.
 """
 import argparse
 import hashlib
@@ -178,10 +178,12 @@ class Manager:
         run = self.api.api(f"{self.root}/actions/runs/{int(run_id)}")
         expected_branch = self.tag if packages else "master"
         expected_path = ".github/workflows/release.yml" if packages else ".github/workflows/build.yml"
-        require(run["event"] == "push" and run["head_branch"] == expected_branch
+        provenance = ((run["event"] == "push" and run["head_branch"] == expected_branch)
+                      or (run["event"] == "workflow_dispatch" and run["head_branch"] == "master"))
+        require(provenance
                 and run["head_sha"] == self.head and run["path"] == expected_path
                 and run["head_repository"]["full_name"] == self.repository,
-                "Only this repository's matching master/tag push run is trusted")
+                "Only this repository's exact master/tag verification run is trusted")
         if not packages:
             require(run["status"] == "completed" and run["conclusion"] == "success", "Master checks not successful")
         jobs = self.api.api(f"{self.root}/actions/runs/{int(run_id)}/jobs?per_page=100")
