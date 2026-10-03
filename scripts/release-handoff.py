@@ -24,11 +24,7 @@ class Handoff:
         self.api, self.root = manager.api, manager.root
 
     def trusted(self, run, manager, packages=False):
-        provenance = ((run.get("event") == "push" and run.get("head_branch") == (manager.tag if packages else "master"))
-                      or (run.get("event") == "workflow_dispatch" and run.get("head_branch") == "master"))
-        return (provenance and run.get("head_sha") == manager.head
-                and run.get("path") == (".github/workflows/release.yml" if packages else ".github/workflows/build.yml")
-                and (run.get("head_repository") or {}).get("full_name") == manager.repository)
+        return manager.trusted_run(run, packages)
 
     def discover(self, manager, packages=False):
         matches = [run for run in self.runs(manager, packages)
@@ -57,9 +53,10 @@ class Handoff:
 
     def runs(self, manager, packages=False):
         runs = {}
-        for branch in ([manager.tag, "master"] if packages else ["master"]):
+        queries = [(manager.tag, manager.head), ("master", manager.control_head)] if packages else [("master", manager.head)]
+        for branch, head in queries:
             result = self.api.api(f"{self.root}/actions/runs?branch={branch}"
-                                  f"&head_sha={manager.head}&per_page=100")
+                                  f"&head_sha={head}&per_page=100")
             policy.require(result["total_count"] <= 100, "Run discovery requires pagination; refuse ambiguous results")
             for run in result["workflow_runs"]:
                 if self.trusted(run, manager, packages):
@@ -97,7 +94,10 @@ class Handoff:
         policy.require(props.findtext("PropertyGroup/Version") == self.manager.version,
                        "Approved tag belongs to a different project version")
         notes = self.source_text(f"docs/releases/{self.manager.tag}.md", head)
-        return policy.Manager(self.api, self.manager.repository, self.manager.version, head, notes)
+        source = policy.Manager(self.api, self.manager.repository, self.manager.version, head, notes,
+                                control_head=self.manager.head)
+        source.cover_control = getattr(self, "cover_control", False)
+        return source
 
     def guard(self, verification_run):
         self.manager.ensure_release_allowed()
@@ -130,7 +130,7 @@ class Handoff:
             return result + "; waiting for explicit " + self.manager.tag + " approval"
 
         approved = self.manager.tag_commit()
-        if trigger and trigger["path"] == ".github/workflows/release.yml" and trigger["head_sha"] != approved:
+        if trigger and trigger["path"] == ".github/workflows/release.yml" and trigger["event"] == "push" and trigger["head_sha"] != approved:
             return "Stale approved-tag event; no release changes"
         source = self.source_manager(approved)
         candidate = source.find_release()

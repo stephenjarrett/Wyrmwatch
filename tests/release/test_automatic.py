@@ -35,6 +35,8 @@ class AutoGh(HandoffGh):
 
     def api(self, path, method="GET", payload=None):
         suffix = path.removeprefix("repos/" + REPOSITORY)
+        if suffix == "/actions/runs/4/jobs?per_page=100":
+            return super().api(path.replace("/4/", "/2/"), method, payload)
         if suffix.startswith("/contents/"):
             name, head = suffix.removeprefix("/contents/").split("?ref=")
             content = self.files[head][name].encode()
@@ -132,7 +134,7 @@ class AutomaticTests(unittest.TestCase):
         self.assertTrue(self.api.release["draft"])
         self.assertEqual(HEAD, self.api.tag_sha)
         dispatch = self.api.mutations[-1]
-        self.assertEqual({"ref": "master", "inputs": {"approved_tag": "v" + VERSION}}, dispatch[2])
+        self.assertEqual({"ref": "master", "inputs": {"approved_tag": "v" + VERSION, "source_sha": HEAD}}, dispatch[2])
         self.api.visible_runs.append(2); self.api.runs[2]["status"] = "in_progress"
         writes = len(self.api.mutations)
         self.assertIn("waiting for both", self.auto.run(1))
@@ -238,6 +240,102 @@ class AutomaticTests(unittest.TestCase):
         self.assertEqual(writes, len(self.api.mutations)); self.assertTrue(self.api.release["draft"])
         self.api.runs[1]["head_sha"] = "b" * 40
         self.assertIn("Stale", self.auto.run(1)); self.assertEqual(writes, len(self.api.mutations))
+
+
+    def repaired(self):
+        self.api.visible_runs = [1]
+        self.auto.run(1)
+        assets = copy.deepcopy(self.api.release["assets"])
+        control = "b" * 40
+        self.api.files[control] = copy.deepcopy(self.api.files[HEAD])
+        self.api.files[control][".github/workflows/release.yml"] = "Reviewed XML/source guard repair"
+        self.api.commits[control] = {"message": "Reviewed release-control repair", "parents": [{"sha": HEAD}], "tree": {"sha": control}}
+        self.api.master = self.api.verification_head = control
+        self.api.runs[3]["head_sha"] = control
+        self.api.runs[2].update(event="workflow_dispatch", head_branch="master", conclusion="failure")
+        self.api.visible_runs.extend([2, 3])
+        manager = policy.Manager(self.api, REPOSITORY, VERSION, control, "Notes")
+        return automatic.AutomaticRelease(handoff.Handoff(manager), policy), assets
+
+    def completed_repair_packages(self, auto):
+        run = copy.deepcopy(self.api.runs[2])
+        run.update(id=4, head_sha=auto.manager.head, status="completed", conclusion="success",
+                   display_title=f"Package v{VERSION} at {HEAD}")
+        self.api.runs[4] = run
+        self.api.visible_runs.append(4)
+
+    def test_control_repair_dispatch_preserves_existing_tag_source_and_assets(self):
+        auto, assets = self.repaired()
+        writes = len(self.api.mutations)
+        self.assertIn("Dispatched", auto.run(3))
+        self.assertEqual(assets, self.api.release["assets"])
+        self.assertEqual(HEAD, self.api.tag_sha)
+        self.assertEqual(1, len(self.api.mutations) - writes)
+        self.assertEqual({"ref": "master", "inputs": {"approved_tag": "v" + VERSION, "source_sha": HEAD}},
+                         self.api.mutations[-1][2])
+
+    def test_verified_control_repair_publishes_original_assets_without_patch_loop(self):
+        auto, assets = self.repaired()
+        auto.run(3)
+        self.completed_repair_packages(auto)
+        self.assertIn("Published verified", auto.run(4))
+        metadata = policy.receipt(self.api.release["body"], REPOSITORY, VERSION)
+        self.assertEqual(HEAD, metadata["sha"])
+        self.assertEqual(auto.manager.head, metadata["control_sha"])
+        self.assertEqual(assets, self.api.release["assets"])
+        writes = len(self.api.mutations)
+        for event in (None, 3, 4):
+            self.assertIn("already published", auto.run(event))
+        self.assertEqual(writes, len(self.api.mutations))
+        self.assertEqual("b" * 40, self.api.master)
+        self.assertEqual(1, sum(write[0] == "/git/refs" for write in self.api.mutations))
+
+    def test_application_or_version_changes_cannot_be_covered_as_control_repair(self):
+        for path in ("unchanged.cs", automatic.PROPS, automatic.HOST, automatic.LANGUAGE):
+            with self.subTest(path=path):
+                self.setUp()
+                auto, _ = self.repaired()
+                self.api.files[auto.manager.head][path] += " changed"
+                self.assertFalse(auto.orchestration_only(HEAD))
+
+    def test_wrong_source_title_or_stale_control_cannot_certify_packages(self):
+        auto, _ = self.repaired()
+        self.completed_repair_packages(auto)
+        source = auto.handoff.source_manager(HEAD)
+        original = copy.deepcopy(self.api.runs[4])
+        for changes in ({"display_title": f"Package v{VERSION} at {'b' * 40}"},
+                        {"display_title": f"Package v0.2.3 at {HEAD}"}, {"head_sha": "f" * 40}):
+            with self.subTest(changes=changes):
+                self.api.runs[4] = dict(original, **changes)
+                with self.assertRaises(policy.ReleaseError): source.checked_run(4, packages=True)
+
+    def test_failed_repaired_packages_are_not_dispatched_again_or_published(self):
+        auto, _ = self.repaired()
+        self.completed_repair_packages(auto)
+        self.api.failed_packages = True
+        self.api.runs[4]["conclusion"] = "failure"
+        writes = len(self.api.mutations)
+        with self.assertRaises(policy.ReleaseError): auto.run(4)
+        self.assertEqual(writes, len(self.api.mutations))
+        self.assertTrue(self.api.release["draft"])
+
+    def test_truncated_control_tree_or_concurrent_master_advance_blocks_recovery(self):
+        auto, _ = self.repaired()
+        original = self.api.api
+        def truncated(path, method="GET", payload=None):
+            result = original(path, method, payload)
+            if "/git/trees/" in path: result["truncated"] = True
+            return result
+        writes = len(self.api.mutations)
+        with patch.object(self.api, "api", side_effect=truncated):
+            with self.assertRaises(policy.ReleaseError): auto.run(3)
+        self.assertEqual(writes, len(self.api.mutations))
+        self.completed_repair_packages(auto)
+        self.api.advance_after_packages = True
+        with self.assertRaises(policy.ReleaseError): auto.run(4)
+        self.assertEqual(writes, len(self.api.mutations))
+        self.assertTrue(self.api.release["draft"])
+
 
 
 if __name__ == "__main__": unittest.main()

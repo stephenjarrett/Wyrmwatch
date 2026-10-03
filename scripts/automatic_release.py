@@ -106,7 +106,8 @@ class AutomaticRelease:
 
     def dispatch(self, manager, packages=False, generated=False):
         manager.ensure_release_allowed()
-        manager.current_master()
+        self.policy.require(self.api.api(f"{self.root}/branches/master")["commit"]["sha"] == manager.control_head,
+                            "Master advanced before exact-source dispatch")
         # Include pending and failed runs: never duplicate or silently rerun them.
         if self.handoff.runs(manager, packages):
             return "Existing checks pending or unsuccessful; no automatic rerun"
@@ -115,10 +116,25 @@ class AutomaticRelease:
         workflow = "release.yml" if packages else "build.yml"
         payload = {"ref": "master"}
         if packages:
-            self.policy.require(manager.tag_commit() == manager.head, "Tag no longer matches current master")
-            payload["inputs"] = {"approved_tag": manager.tag}
+            self.policy.require(manager.tag_commit() == manager.head, "Tag no longer matches approved source")
+            payload["inputs"] = {"approved_tag": manager.tag, "source_sha": manager.head}
         self.api.api(f"{self.root}/actions/workflows/{workflow}/dispatches", "POST", payload)
-        return "Dispatched exact-master " + ("tag package checks" if packages else "version checks")
+        return "Dispatched immutable-source package checks from verified master" if packages else "Dispatched exact-master version checks"
+
+    def orchestration_only(self, source):
+        """Do not turn a release-control repair into a second application release."""
+        trees = []
+        for head in (source, self.manager.head):
+            sha = self.api.api(f"{self.root}/git/commits/{head}")["tree"]["sha"]
+            tree = self.api.api(f"{self.root}/git/trees/{sha}?recursive=1")
+            self.policy.require(not tree.get("truncated") and len(tree["tree"]) < 10000,
+                                "Cannot verify complete orchestration repair")
+            trees.append({e["path"]: (e["mode"], e["type"], e["sha"]) for e in tree["tree"] if e["type"] != "tree"})
+        changed = {p for p in trees[0].keys() | trees[1].keys() if trees[0].get(p) != trees[1].get(p)}
+        allowed = {".github/workflows/release.yml", ".github/workflows/release-handoff.yml",
+                   "scripts/manage-release.py", "scripts/release-handoff.py", "scripts/automatic_release.py",
+                   "docs/releasing.md"}
+        return bool(changed) and all(p in allowed or p.startswith("tests/release/") for p in changed)
 
     def next_version(self, releases, refs):
         current = tuple(map(int, self.manager.version.split(".")))
@@ -158,7 +174,19 @@ class AutomaticRelease:
         if metadata:
             self.policy.validate_assets(candidate, metadata, complete=metadata["phase"] != "preparing")
             self.policy.require(candidate["draft"] or metadata["phase"] == "published", "Unknown public candidate")
-        used_elsewhere = (bool(exact) and self.manager.tag_commit() != self.manager.head) or (metadata and metadata["sha"] != self.manager.head)
+        approved = self.manager.tag_commit() if exact else None
+        used_elsewhere = (bool(exact) and approved != self.manager.head) or (metadata and metadata["sha"] != self.manager.head)
+        if metadata and metadata.get("control_sha") == self.manager.head:
+            self.policy.require(metadata["phase"] == "published" and approved == metadata["sha"]
+                                and self.orchestration_only(metadata["sha"]), "Invalid covered orchestration repair")
+            return "Matching release already published under this verified orchestration; no changes"
+        if (used_elsewhere and exact and metadata and candidate["draft"] and metadata["phase"] == "ready"
+                and approved == metadata["sha"] and self.orchestration_only(approved)):
+            self.handoff.cover_control = True
+            source = self.handoff.source_manager(approved)
+            if not self.handoff.runs(source, packages=True):
+                return self.dispatch(source, packages=True)
+            return self.handoff.run(event_run_id)
         if used_elsewhere:
             version = self.next_version(self.api.api(f"{self.root}/releases?per_page=100"), refs)
             head = self.commit(version, verification)
