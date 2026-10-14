@@ -138,7 +138,16 @@ public sealed class WindowsRuntime(JsonStore store, string signalHelper) : IServ
             throw new IOException("This server was started outside this manager. Stop it using its existing controls; later starts from this app support safe shutdown.");
         if (!File.Exists(signalHelper)) throw new IOException("The safe shutdown helper is missing.");
         var target = state.Processes.OrderByDescending(p => p.Path.Contains("Shipping", StringComparison.OrdinalIgnoreCase)).First();
-        await CommandRunner.RunAsync(signalHelper, [target.Id.ToString(), target.StartUtc.Ticks.ToString(), profile.InstallPath], AppContext.BaseDirectory, _ => { }, TimeSpan.FromSeconds(15), token);
+        try
+        {
+            await CommandRunner.RunAsync(signalHelper, [target.Id.ToString(), target.StartUtc.Ticks.ToString(), profile.InstallPath], AppContext.BaseDirectory, _ => { }, TimeSpan.FromSeconds(15), token);
+        }
+        catch (CommandExecutionException error)
+        {
+            throw new IOException(string.IsNullOrWhiteSpace(error.Output)
+                ? $"The shutdown helper failed (code {error.ExitCode}). The server remains running; it was not force-killed."
+                : error.Output.Trim(), error);
+        }
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token); deadline.CancelAfter(TimeSpan.FromMinutes(2));
         try
         {

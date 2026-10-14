@@ -6,11 +6,11 @@ using System.Formats.Tar;
 
 namespace Wyrmwatch.Core;
 
-internal sealed class CommandExecutionException(string executable, int exitCode, string output)
+public sealed class CommandExecutionException(string executable, int exitCode, string output)
     : IOException($"{Path.GetFileName(executable)} exited with code {exitCode}. See Activity for details.")
 {
-    internal int ExitCode { get; } = exitCode;
-    internal string Output { get; } = output;
+    public int ExitCode { get; } = exitCode;
+    public string Output { get; } = output;
 }
 
 internal delegate Task<string> CommandExecutor(string executable, IEnumerable<string> arguments,
