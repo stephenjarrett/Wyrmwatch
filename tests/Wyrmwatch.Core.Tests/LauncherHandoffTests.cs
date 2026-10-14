@@ -10,13 +10,17 @@ namespace Wyrmwatch.Core.Tests;
 public class LauncherHandoffTests
 {
     [Theory]
-    [InlineData(false, false)]
-    [InlineData(false, true)]
-    [InlineData(true, false)]
-    public async Task LauncherExitRetainsOwnershipAndGracefulShutdownAfterManagerRestart(bool shellExec, bool cancelBeforeFirstInspection)
+    [InlineData(false, false, false)]
+    [InlineData(false, true, false)]
+    [InlineData(true, false, false)]
+    [InlineData(false, false, true)]
+    [InlineData(false, true, true)]
+    [InlineData(false, false, true, false)]
+    public async Task LauncherExitRetainsOwnershipAndGracefulShutdownAfterManagerRestart(bool shellExec, bool cancelBeforeFirstInspection, bool graphical, bool recognized = true)
     {
         if (!OperatingSystem.IsWindows() && !OperatingSystem.IsLinux()) return;
         if (OperatingSystem.IsWindows() && shellExec) return;
+        if (!OperatingSystem.IsWindows() && graphical) return;
         var fixture = new Fixture();
         using var socket = new UdpClient(new IPEndPoint(IPAddress.Loopback, 0));
         var port = ((IPEndPoint)socket.Client.LocalEndPoint!).Port; socket.Close();
@@ -34,6 +38,8 @@ public class LauncherHandoffTests
         {
             File.Copy(Path.Combine(shipping, "RSDragonwildsServer.exe"), executable);
             File.WriteAllText(Path.Combine(install, "launcher-handoff"), "fixture");
+            if (graphical) File.WriteAllText(Path.Combine(shipping, "window-console"), "fixture");
+            if (!recognized) File.WriteAllText(Path.Combine(shipping, "unrecognized-window"), "fixture");
         }
         else
         {
@@ -80,8 +86,23 @@ public class LauncherHandoffTests
             // Reopen persisted ownership, without relying on the first runtime's in-memory registry.
             var restarted = MakeRuntime();
             Assert.True((await restarted.InspectAsync(profile, timeout.Token)).Running);
+            if (graphical)
+                while (!File.Exists(Path.Combine(shipping, "window.ready"))) await Task.Delay(10, timeout.Token);
+            var world = Path.Combine(profile.SavedPath, "SaveGames", "world.sav");
+            var originalWorld = File.ReadAllBytes(world);
+            if (!recognized)
+            {
+                var refusal = await Assert.ThrowsAsync<IOException>(() => restarted.StopAsync(profile, timeout.Token));
+                Assert.Contains("no Windows text console or recognized game console window", refusal.Message);
+                Assert.True((await restarted.InspectAsync(profile, timeout.Token)).Running);
+                Assert.False(File.Exists(Path.Combine(shipping, "shutdown.requested")));
+                Assert.Equal(originalWorld, File.ReadAllBytes(world));
+                completed = true;
+                return;
+            }
             await restarted.StopAsync(profile, timeout.Token);
             Assert.Equal("graceful", File.ReadAllText(Path.Combine(shipping, "shutdown.requested")));
+            Assert.Equal(originalWorld, File.ReadAllBytes(world));
             Assert.False((await restarted.InspectAsync(profile, timeout.Token)).Running);
             // An unrelated later process at the exact same installation path is never adopted.
             var externalStart = new ProcessStartInfo(executable) { UseShellExecute = false };

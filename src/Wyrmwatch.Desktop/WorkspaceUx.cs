@@ -83,7 +83,8 @@ public partial class MainWindow
     private void ReportOperationFailure(string title, Exception error, string? owner = null)
     {
         var recovery = model.RecoveryPending || title.Contains("restore", StringComparison.OrdinalIgnoreCase) || title.Contains("recovery", StringComparison.OrdinalIgnoreCase);
-        model.ReportError(title + " stopped. " + (recovery ? "Check retained files and recovery here before retrying." : "Review Activity and verify server state before retrying."), error.Message, recovery ? "Backups" : "Activity", recovery ? "Open recovery in Backups" : "Open Activity", owner);
+        var status = title is "Back up and stop server" or "Back up and restart server" ? " failed. " : " stopped. ";
+        model.ReportError(title + status + (recovery ? "Check retained files and recovery here before retrying." : "Review Activity and verify server state before retrying."), error.Message, recovery ? "Backups" : "Activity", recovery ? "Open recovery in Backups" : "Open Activity", owner);
     }
     private async Task ReturnFromSetupAsync(CreateServerDialog dialog)
     {
