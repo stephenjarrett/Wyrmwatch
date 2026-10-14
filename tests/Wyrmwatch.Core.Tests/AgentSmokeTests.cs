@@ -60,7 +60,7 @@ public class AgentSmokeTests
         Assert.Equal(1, second.ExitCode);
         Assert.Contains("A background manager already owns this workspace", await secondError);
         Assert.DoesNotContain("Unhandled exception", await secondError);
-        await EnsureSuccessWithBodyAsync(await agent.Admin.PutAsJsonAsync("admin/preferences", new ManagerSettings { BackgroundMode = true }));
+        await SavePreferencesWhenIdleAsync(agent.Admin, new ManagerSettings { BackgroundMode = true });
         Assert.True((await agent.Admin.PostAsJsonAsync("admin/attach", new AgentParent(int.MaxValue, "missing"))).IsSuccessStatusCode);
         var backups = new BackupEngine();
         using (var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(25)))
@@ -92,7 +92,7 @@ public class AgentSmokeTests
         Assert.Equal(next, (await agent.Admin.GetFromJsonAsync<AgentStatus>("api/status"))!.Servers.Single(s => s.Id == agent.First.Id).Schedule.NextBackup);
         Assert.Single(backups.List(agent.First));
         Assert.True((await agent.Admin.PostAsJsonAsync("admin/attach", new AgentParent(int.MaxValue, "missing"))).IsSuccessStatusCode);
-        Assert.True((await agent.Admin.PutAsJsonAsync("admin/preferences", new ManagerSettings { BackgroundMode = false })).IsSuccessStatusCode);
+        await SavePreferencesWhenIdleAsync(agent.Admin, new ManagerSettings { BackgroundMode = false });
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(12)); await agent.Process.WaitForExitAsync(timeout.Token);
         Assert.Equal(0, agent.Process.ExitCode);
         Assert.Equal("untouched", File.ReadAllText(agent.Sentinel));
@@ -133,6 +133,19 @@ public class AgentSmokeTests
         var imported = await result.Content.ReadFromJsonAsync<ServerProfile>();
         Assert.False(imported!.AutoBackup); Assert.False(imported.AutoUpdate); Assert.Equal(7780, imported.Port);
         Assert.Equal(config, File.ReadAllBytes(profile.ConfigPath)); Assert.Empty(new BackupEngine().List(profile));
+    }
+
+    private static async Task SavePreferencesWhenIdleAsync(HttpClient client, ManagerSettings preferences)
+    {
+        // Scheduled backups/monitoring can hold the gate during agent startup.
+        // A 409 rejects the edit without applying it; wait instead of racing it.
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        while (true)
+        {
+            using var response = await client.PutAsJsonAsync("admin/preferences", preferences, deadline.Token);
+            if (response.StatusCode != HttpStatusCode.Conflict) { await EnsureSuccessWithBodyAsync(response); return; }
+            await Task.Delay(100, deadline.Token);
+        }
     }
 
     private static async Task EnsureSuccessWithBodyAsync(HttpResponseMessage response)
