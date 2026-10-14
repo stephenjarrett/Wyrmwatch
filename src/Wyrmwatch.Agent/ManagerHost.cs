@@ -7,7 +7,7 @@ namespace Wyrmwatch.Agent;
 
 public sealed class ManagerHost
 {
-    public const string Version = "0.2.6";
+    public const string Version = "0.2.7";
     private readonly JsonStore store;
     private readonly IServerRuntime runtime;
     private readonly ISteamClient steam;
@@ -68,6 +68,14 @@ public sealed class ManagerHost
             maintenance.Schedule(p.Id), steam.InstalledBuild(p)) { RecoveryRequired = backups.HasPendingRestore(p) }).ToList(), maintenance.History.Snapshot().Take(100).ToList(), log.ToList(), settings.BackgroundMode || PersistentHost, null, PersistentHost);
     }
     public ServerProfile Profile(string id) => Settings.Servers.SingleOrDefault(p => p.Id == id) ?? throw new KeyNotFoundException("Server connection not found.");
+    public Dictionary<string, string> Configuration(string id)
+    {
+        var profile = Profile(id); SafePaths.NoLinks(profile.ConfigPath);
+        var values = GameConfiguration.Read(profile.ConfigPath);
+        if (string.IsNullOrWhiteSpace(values.GetValueOrDefault("AdminPassword")) && new AdminPasswordStore(store).Read(profile) is { } password)
+            values["AdminPassword"] = password;
+        return values;
+    }
     public async Task<string> ExecuteAsync(string id, ServerAction request)
     {
         if (!await operations.WaitAsync(0)) throw new InvalidOperationException("Another operation is still running.");
@@ -214,6 +222,7 @@ public sealed class ManagerHost
             if (!File.Exists(stagedProfile.Launcher)) throw new IOException("The download did not produce the server launcher.");
             configuration = GameConfiguration.Merge(File.Exists(stagedProfile.ConfigPath) ? await File.ReadAllTextAsync(stagedProfile.ConfigPath) : "", values);
             AtomicFile.Write(stagedProfile.ConfigPath, configuration);
+            new AdminPasswordStore(store).Remember(profile, values["AdminPassword"]);
             if (source is not null)
             {
                 await CheckImportSourceAsync(source);
@@ -282,7 +291,7 @@ public sealed class ManagerHost
     public Task SavePreferencesAsync(ManagerSettings preferences) => ChangeSettingsAsync(settings => settings with
     {
         Theme = preferences.Theme, CloseToTray = preferences.CloseToTray, LaunchAtLogin = preferences.LaunchAtLogin,
-        BackgroundMode = preferences.BackgroundMode, Language = preferences.Language, ReduceMotion = preferences.ReduceMotion,
+        BackgroundMode = preferences.BackgroundMode, Language = preferences.Language, ReduceMotion = preferences.ReduceMotion, FollowLog = preferences.FollowLog,
         SelectedServerId = preferences.SelectedServerId
     });
     private async Task ChangeSettingsAsync(Func<ManagerSettings, ManagerSettings> change)

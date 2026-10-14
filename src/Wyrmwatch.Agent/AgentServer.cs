@@ -44,6 +44,11 @@ public static class AgentServer
         app.MapPost("/api/servers/{id}/actions", async (string id, ServerAction action) => new ActionResult(await manager.ExecuteAsync(id, action)));
         app.MapGet("/admin/settings", () => manager.Settings);
         app.MapGet("/admin/servers/{id}/log", (string id) => new ActionResult(LogTail.Read(manager.Profile(id).LogPath)));
+        app.MapGet("/admin/servers/{id}/configuration", (string id, HttpContext context) =>
+        {
+            context.Response.Headers.CacheControl = "no-store";
+            return manager.Configuration(id);
+        });
         app.MapPut("/admin/preferences", async (ManagerSettings settings) => { await manager.SavePreferencesAsync(settings); return Results.Ok(); });
         app.MapPut("/admin/profiles", async (ServerProfile profile) => await manager.SaveProfileAsync(profile));
         app.MapPost("/admin/import", async (ServerProfile profile) => await manager.ImportProfileAsync(profile));

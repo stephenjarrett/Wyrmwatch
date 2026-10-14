@@ -39,7 +39,16 @@ public partial class MainWindow : Window
         try
         {
             settings = store.Read("settings.json", () => new ManagerSettings());
-            if (Program.ApplyStartup && settings.LaunchAtLogin) DesktopIntegration.SetStartup(true);
+            if (Program.ApplyStartup && !Program.HeadlessTest)
+            {
+                try
+                {
+                    if (settings.LaunchAtLogin) DesktopIntegration.SetStartup(true);
+                    if (Program.PreviousExecutable is { } previous && Environment.ProcessPath is { } current)
+                        DesktopIntegration.RetargetShortcut(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), "Wyrmwatch.lnk"), previous, current);
+                }
+                catch (Exception error) { model.Notice = "Update opened. Desktop integration needs attention: " + error.Message; }
+            }
             steam = new SteamClient(Path.Combine(Program.DataDirectory, "tools"));
             service = connection ?? new(Program.DataDirectory);
             service.Log += Log;
@@ -50,6 +59,7 @@ public partial class MainWindow : Window
             ThemePicker.SelectedIndex = settings.Theme switch { "Light" => 1, "System" => 2, _ => 0 };
             ApplyTheme(); CloseToTray.IsChecked = settings.CloseToTray; LaunchAtLogin.IsChecked = settings.LaunchAtLogin; KeepBackground.IsChecked = settings.BackgroundMode; ReduceMotion.IsChecked = settings.ReduceMotion; ApplyMotionPreference();
             LanguagePicker.ItemsSource = new[] { Localization.English }; LanguagePicker.SelectedIndex = 0;
+            LiveServerLog.IsChecked = settings.FollowLog;
             ready = true; if (!Program.HeadlessTest) SetupTray(); LoadProfile(); RefreshHistory(); Navigate(Navigation, new SelectionChangedEventArgs(ListBox.SelectionChangedEvent, Array.Empty<object>(), Array.Empty<object>()));
             Opened += async (_, _) => { try { if (Program.Minimized) WindowState = WindowState.Minimized; if (!Program.HeadlessTest) { await LoadLanguagesAsync(settings.Language); await PollLoopAsync(); } } catch (OperationCanceledException) { } };
             Closing += OnClosing;
@@ -100,7 +110,7 @@ public partial class MainWindow : Window
         UseWindow.IsChecked = p.UseMaintenanceWindow; WindowStart.Text = p.WindowStart.ToString("HH:mm"); WindowEnd.Text = p.WindowEnd.ToString("HH:mm"); GamePort.Value = p.Port;
         if (!Program.Demo)
         {
-            try { var values = GameConfiguration.Read(p.ConfigPath); OwnerId.Text = values.GetValueOrDefault("OwnerId", ""); GameServerName.Text = values.GetValueOrDefault("ServerName", ""); WorldName.Text = values.GetValueOrDefault("DefaultWorldName", ""); AdminPassword.Text = values.GetValueOrDefault("AdminPassword", ""); WorldPassword.Text = values.GetValueOrDefault("WorldPassword", ""); if (int.TryParse(values.GetValueOrDefault("Port"), out var port)) GamePort.Value = port; }
+            try { var values = GameConfiguration.Read(p.ConfigPath); OwnerId.Text = values.GetValueOrDefault("OwnerId", ""); GameServerName.Text = values.GetValueOrDefault("ServerName", ""); WorldName.Text = values.GetValueOrDefault("DefaultWorldName", ""); AdminPassword.Text = ReadAdminPassword(p, values); WorldPassword.Text = values.GetValueOrDefault("WorldPassword", ""); if (int.TryParse(values.GetValueOrDefault("Port"), out var port)) GamePort.Value = port; }
             catch (Exception e) { model.Notice = e.Message; }
         }
         model.Status = "Checking…"; model.Players = model.Cpu = model.Memory = model.Uptime = "—";

@@ -62,10 +62,10 @@ public sealed class JsonStore(string directory)
             catch (JsonException e) { throw new IOException($"Cannot read {name}. The original file has been preserved.", e); }
         }
     }
-    public void Write<T>(string name, T value)
+    public void Write<T>(string name, T value, bool privateFile = false)
     {
         Directory.CreateDirectory(DirectoryPath);
-        AtomicFile.Write(Path.Combine(DirectoryPath, name), JsonSerializer.Serialize(value, Options));
+        AtomicFile.Write(Path.Combine(DirectoryPath, name), JsonSerializer.Serialize(value, Options), privateFile);
         knownFiles.TryAdd(Path.Combine(DirectoryPath, name), 0);
     }
 }
@@ -73,14 +73,16 @@ public sealed class JsonStore(string directory)
 public static class AtomicFile
 {
     internal static bool SharingViolation(IOException error) => OperatingSystem.IsWindows() && (error.HResult & 0xffff) is 32 or 33;
-    public static void Write(string path, string text)
+    public static void Write(string path, string text, bool privateFile = false)
     {
         SafePaths.NoLinks(path);
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         var temp = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
         {
-            using (var file = new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            var options = new FileStreamOptions { Mode = FileMode.CreateNew, Access = FileAccess.Write, Share = FileShare.None };
+            if (privateFile && !OperatingSystem.IsWindows()) options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+            using (var file = new FileStream(temp, options))
             {
                 using var writer = new StreamWriter(file, new System.Text.UTF8Encoding(false), leaveOpen: true);
                 writer.Write(text); writer.Flush(); file.Flush(true);

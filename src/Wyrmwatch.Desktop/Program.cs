@@ -10,6 +10,7 @@ internal static class Program
     public static bool Minimized;
     public static bool HeadlessTest;
     public static bool ApplyStartup;
+    public static string? PreviousExecutable;
     private static Mutex? singleInstance;
     [STAThread]
     public static void Main(string[] args)
@@ -21,6 +22,8 @@ internal static class Program
             catch (Exception error) when (error is ArgumentException or InvalidOperationException) { }
         }
         ApplyStartup = args.Contains("--apply-startup");
+        var previousIndex = Array.IndexOf(args, "--previous-executable");
+        PreviousExecutable = previousIndex >= 0 && previousIndex + 1 < args.Length ? Path.GetFullPath(args[previousIndex + 1]) : null;
         Demo = args.Contains("--demo"); Minimized = args.Contains("--minimized");
         var index = Array.IndexOf(args, "--data-dir");
         if (index >= 0 && index + 1 < args.Length) DataDirectory = Path.GetFullPath(args[index + 1]);

@@ -4,6 +4,41 @@ namespace Wyrmwatch.Core.Tests;
 
 public class MaintenanceTests
 {
+    [Fact]
+    public async Task PasswordSurvivesGameRewriteAndManagerReopenWithoutChangingWorld()
+    {
+        using var f = new Fixture(); var runtime = new Runtime();
+        var service = new MaintenanceService(runtime, new Steam(), new(), new(f.Root));
+        await service.StartAsync(f.Profile);
+        runtime.State = ServerSnapshot.Offline;
+        File.WriteAllText(f.Profile.ConfigPath, File.ReadAllText(f.Profile.ConfigPath).Replace("AdminPassword=test-only\n", ""));
+        var rewritten = File.ReadAllText(f.Profile.ConfigPath);
+        var reopened = new MaintenanceService(runtime, new Steam(), new(), new(f.Root));
+        await reopened.StartAsync(f.Profile);
+        Assert.Equal("test-only", GameConfiguration.Read(f.Profile.ConfigPath)["AdminPassword"]);
+        Assert.Equal(rewritten.TrimEnd(), File.ReadAllText(f.Profile.ConfigPath).Replace("AdminPassword=test-only\n", "").TrimEnd());
+        Assert.Equal("precious world data", File.ReadAllText(Path.Combine(f.Profile.SavedPath, "SaveGames", "world.sav")));
+        Assert.Equal(2, runtime.Starts);
+    }
+    [Fact]
+    public async Task ExplicitPasswordEditWinsOverRetainedPassword()
+    {
+        using var f = new Fixture(); var runtime = new Runtime();
+        var store = new JsonStore(f.Root); new AdminPasswordStore(store).Remember(f.Profile, "old-fixture");
+        await new MaintenanceService(runtime, new Steam(), new(), store).StartAsync(f.Profile);
+        Assert.Equal("test-only", new AdminPasswordStore(new(f.Root)).Read(f.Profile));
+    }
+    [Theory] [InlineData(true)] [InlineData(false)]
+    public async Task PasswordPreparationNeverWritesOnlineOrUnverifiableServer(bool running)
+    {
+        using var f = new Fixture(); var store = new JsonStore(f.Root);
+        new AdminPasswordStore(store).Remember(f.Profile, "retained-fixture");
+        File.WriteAllText(f.Profile.ConfigPath, File.ReadAllText(f.Profile.ConfigPath).Replace("AdminPassword=test-only\n", ""));
+        var original = File.ReadAllText(f.Profile.ConfigPath);
+        var runtime = new Runtime { State = ServerSnapshot.Offline with { Running = running, Accessible = running } };
+        await Assert.ThrowsAsync<IOException>(() => new MaintenanceService(runtime, new Steam(), new(), store).StartAsync(f.Profile));
+        Assert.Equal(original, File.ReadAllText(f.Profile.ConfigPath)); Assert.Equal(0, runtime.Starts);
+    }
     private sealed class Clock : TimeProvider
     {
         public DateTimeOffset Now = DateTimeOffset.UtcNow;

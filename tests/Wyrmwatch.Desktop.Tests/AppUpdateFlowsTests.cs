@@ -1,6 +1,7 @@
 using System.Formats.Tar;
 using System.IO.Compression;
 using System.Net;
+using System.Net.Http.Json;
 using System.Reflection;
 using System.Security.Cryptography;
 using Avalonia.Controls;
@@ -16,7 +17,7 @@ namespace Wyrmwatch.Desktop.Tests;
 public class AppUpdateFlowsTests : IsolatedDesktopTest
 {
     [AvaloniaFact]
-    public async Task ByteProgressNeverEnablesHandoffBeforeVerificationAndReadyPreservesCurrentApp()
+    public async Task VerifiedDownloadRestartsOnceAndNeverBeforeVerification()
     {
         using var fixture = new Fixture();
         var stream = fixture.ConfigureDownload();
@@ -46,13 +47,15 @@ public class AppUpdateFlowsTests : IsolatedDesktopTest
             Assert.True(fixture.Progress.IsIndeterminate);
             Assert.Contains("awaiting verification", fixture.Status.Text);
             Assert.False(fixture.Switch.IsEnabled);
+            Assert.Equal(0, fixture.Restarts);
             Assert.True(fixture.Cancel.IsEnabled);
 
             stream.Complete.TrySetResult();
             await download;
             Dispatcher.UIThread.RunJobs();
-            Assert.Contains("verified and ready", fixture.Status.Text);
-            Assert.True(fixture.Switch.IsEnabled);
+            Assert.Contains("Updated manager opened", fixture.Status.Text);
+            Assert.Equal(1, fixture.Restarts);
+            Assert.False(fixture.Switch.IsVisible);
             Assert.True(fixture.Check.IsEnabled);
             Assert.False(fixture.Cancel.IsEnabled);
             Assert.False(fixture.Progress.IsVisible);
@@ -100,6 +103,31 @@ public class AppUpdateFlowsTests : IsolatedDesktopTest
         finally { stream.ReleaseAll(); await download; }
     }
 
+    [AvaloniaFact]
+    public async Task FailedRestartRetainsVerifiedPackageForRetryWithoutRedownload()
+    {
+        using var fixture = new Fixture { FailRestart = true };
+        fixture.ConfigureDownload().ReleaseAll();
+        await fixture.Window.DownloadManagerUpdateAsync();
+        Assert.Equal(1, fixture.Restarts); Assert.True(fixture.Switch.IsVisible);
+        Assert.False(fixture.Download.IsEnabled); Assert.True(fixture.Model.HasError);
+        fixture.FailRestart = false;
+        await fixture.Window.SwitchManagerVersionAsync();
+        Assert.Equal(2, fixture.Restarts); Assert.False(fixture.Switch.IsVisible);
+        Assert.Equal("current app fixture", File.ReadAllText(fixture.PreviousApp));
+    }
+    [AvaloniaTheory]
+    [InlineData(false)] [InlineData(true)]
+    public async Task BusyOrPersistentManagerNeverRestartsAutomatically(bool persistent)
+    {
+        using var fixture = new Fixture { Busy = !persistent, Persistent = persistent };
+        fixture.ConfigureDownload().ReleaseAll();
+        await fixture.Window.DownloadManagerUpdateAsync();
+        Assert.Equal(0, fixture.Restarts); Assert.False(fixture.Download.IsEnabled);
+        if (persistent) Assert.Contains("manual handoff", fixture.Status.Text);
+        else { Assert.True(fixture.Switch.IsVisible); Assert.True(fixture.Model.HasError); }
+    }
+
     private static T Field<T>(Window window, string name) where T : Control => window.GetLogicalDescendants().OfType<T>().Single(c => c.Name == name);
     private static async Task Until(Func<bool> condition)
     {
@@ -112,6 +140,8 @@ public class AppUpdateFlowsTests : IsolatedDesktopTest
         private readonly string root = Path.Combine(Path.GetTempPath(), "wyrmwatch-ui-update-" + Guid.NewGuid().ToString("N"));
         private readonly byte[] package;
         public MainWindow Window { get; }
+        public int Restarts { get; private set; }
+        public bool FailRestart, Busy, Persistent;
         public WorkspaceModel Model => (WorkspaceModel)Window.DataContext!;
         public ProgressBar Progress => Field<ProgressBar>(Window, "AppDownloadProgress");
         public TextBlock Status => Field<TextBlock>(Window, "AppUpdateStatus");
@@ -126,7 +156,9 @@ public class AppUpdateFlowsTests : IsolatedDesktopTest
             File.WriteAllText(PreviousApp, "current app fixture");
             Program.HeadlessTest = true; Program.Demo = false; Program.DataDirectory = root;
             package = Package();
-            Window = new MainWindow(); Window.Show(); Window.ShowPage(WorkspacePage.AppUpdates);
+            Window = new MainWindow(new AgentClient(root, new HttpClient(new StatusHandler(() => new(Busy, "fixture", [], [], [], false, null, Persistent))) { BaseAddress = new Uri("http://fixture/") }));
+            Window.AppUpdateRestartOverride = update => { Restarts++; Assert.True(File.Exists(update.Executable)); if (FailRestart) throw new IOException("fixture restart failure"); return Task.CompletedTask; };
+            Window.Show(); Window.ShowPage(WorkspacePage.AppUpdates);
             Assert.True(Check.IsEnabled);
             Assert.False(Download.IsEnabled);
             Assert.False(Switch.IsEnabled);
@@ -170,6 +202,10 @@ public class AppUpdateFlowsTests : IsolatedDesktopTest
             }
             return output.ToArray();
         }
+    }
+    private sealed class StatusHandler(Func<AgentStatus> status) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(status()) });
     }
     private sealed class ResponseHandler(Stream stream) : HttpMessageHandler
     {

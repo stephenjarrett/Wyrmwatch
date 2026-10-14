@@ -82,8 +82,13 @@ public partial class MainWindow
     private static string SetupErrorOwner(string installPath) => "setup:" + (OperatingSystem.IsWindows() ? Path.GetFullPath(installPath).ToUpperInvariant() : Path.GetFullPath(installPath));
     private void ReportOperationFailure(string title, Exception error, string? owner = null)
     {
+        if (title == "Start server" && error.Message.Contains("is required.", StringComparison.Ordinal))
+        {
+            model.ReportError("Server settings need attention before starting.", error.Message, "ServerSettings", "Open Server settings", owner);
+            return;
+        }
         var recovery = model.RecoveryPending || title.Contains("restore", StringComparison.OrdinalIgnoreCase) || title.Contains("recovery", StringComparison.OrdinalIgnoreCase);
-        var status = title is "Back up and stop server" or "Back up and restart server" ? " failed. " : " stopped. ";
+        var status = " failed. ";
         model.ReportError(title + status + (recovery ? "Check retained files and recovery here before retrying." : "Review Activity and verify server state before retrying."), error.Message, recovery ? "Backups" : "Activity", recovery ? "Open recovery in Backups" : "Open Activity", owner);
     }
     private async Task ReturnFromSetupAsync(CreateServerDialog dialog)

@@ -74,7 +74,7 @@ public sealed class MaintenanceService(IServerRuntime runtime, ISteamClient stea
     public Task<string> CheckAsync(ServerProfile p) => ExecuteAsync(p, "Check for updates", async () => (await steam.CheckAsync(p, WriteLog)).Summary);
     public Task<string> StartAsync(ServerProfile p) => ExecuteAsync(p, "Start server", async () =>
     {
-        await runtime.StartAsync(p); return "Server process started. Watch the server log for world readiness.";
+        await StartRuntimeAsync(p); return "Server process started. Watch the server log for world readiness.";
     });
     public Task<string> StopAsync(ServerProfile p, bool restart = false) => ExecuteAsync(p, restart ? "Restart server" : "Stop server", async () =>
     {
@@ -89,7 +89,7 @@ public sealed class MaintenanceService(IServerRuntime runtime, ISteamClient stea
         await backups.CreateAsync(p, restart ? "Before restart" : "Before stop", true);
         await runtime.StopAsync(p);
         await backups.CreateAsync(p, "After shutdown", false);
-        if (restart) await runtime.StartAsync(p);
+        if (restart) await StartRuntimeAsync(p);
         backups.Prune(p); return restart ? "Server restarted." : "Server stopped and backed up.";
     });
     public Task<string> UpdateAsync(ServerProfile p, bool automatic = false) => ExecuteAsync(p, automatic ? "Automatic update" : "Update server", async () =>
@@ -109,13 +109,13 @@ public sealed class MaintenanceService(IServerRuntime runtime, ISteamClient stea
             if (deferred is not null) return "Waiting: " + deferred;
             await runtime.StopAsync(p);
             try { await backups.CreateAsync(p, "Stopped before update", false); }
-            catch { await runtime.StartAsync(p); throw; }
+            catch { await StartRuntimeAsync(p); throw; }
         }
         var stopped = await runtime.InspectAsync(p);
         if (!stopped.Accessible || stopped.Running) throw new IOException("The server is not confirmed stopped. Update cancelled.");
         await steam.InstallAsync(p, false, WriteLog);
         if (steam.InstalledBuild(p) != build.Available) throw new IOException("Installed build does not match the checked version. The server remains stopped for investigation.");
-        if (state.Running) await runtime.StartAsync(p);
+        if (state.Running) await StartRuntimeAsync(p);
         backups.Prune(p); return $"Updated to build {build.Available}.";
     });
     public Task<string> InstallAsync(ServerProfile p) => ExecuteAsync(p, "Install server", async () =>
@@ -136,8 +136,31 @@ public sealed class MaintenanceService(IServerRuntime runtime, ISteamClient stea
         state = await runtime.InspectAsync(p);
         if (!state.Accessible || state.Running) throw new IOException("The server started while preparing the change. Configuration was not changed.");
         if ((File.Exists(p.ConfigPath) ? await File.ReadAllTextAsync(p.ConfigPath) : "") != original) throw new IOException("Configuration changed while preparing the edit. Reload it before saving.");
-        AtomicFile.Write(p.ConfigPath, merged); return "Game configuration saved. Previous settings are preserved in the backup.";
+        AtomicFile.Write(p.ConfigPath, merged);
+        new AdminPasswordStore(store).Remember(p, values.GetValueOrDefault("AdminPassword", ""));
+        return "Game configuration saved. Previous settings are preserved in the backup.";
     });
+    private async Task StartRuntimeAsync(ServerProfile profile)
+    {
+        var state = await runtime.InspectAsync(profile);
+        if (!state.Accessible) throw new IOException("Cannot verify server state. No settings were changed.");
+        if (state.Running) throw new IOException("The server is already running. No settings were changed.");
+        var original = File.Exists(profile.ConfigPath) ? await File.ReadAllTextAsync(profile.ConfigPath) : "";
+        var values = GameConfiguration.ReadText(original);
+        var passwords = new AdminPasswordStore(store);
+        if (!string.IsNullOrWhiteSpace(values.GetValueOrDefault("AdminPassword"))) passwords.Remember(profile, values["AdminPassword"]);
+        else if (passwords.Read(profile) is { } password)
+        {
+            values["AdminPassword"] = password;
+            var restored = GameConfiguration.Merge(original, values);
+            state = await runtime.InspectAsync(profile);
+            if (!state.Accessible || state.Running || !File.Exists(profile.ConfigPath) || await File.ReadAllTextAsync(profile.ConfigPath) != original)
+                throw new IOException("Server state or configuration changed while preparing its saved admin password. No settings were overwritten.");
+            SafePaths.NoLinks(profile.ConfigPath);
+            AtomicFile.Write(profile.ConfigPath, restored);
+        }
+        await runtime.StartAsync(profile);
+    }
     public Task<string> RestoreAsync(ServerProfile p, string archive) => ExecuteAsync(p, "Restore backup", async () =>
     {
         var recovery = await backups.RestoreAsync(p, archive, async () => { var state = await runtime.InspectAsync(p); return state.Accessible && !state.Running; });

@@ -9,6 +9,7 @@ public abstract class IsolatedDesktopTest : IDisposable
     private readonly bool demo = Program.Demo, headless = Program.HeadlessTest;
     private readonly bool minimized = Program.Minimized, applyStartup = Program.ApplyStartup;
     private readonly string directory = Program.DataDirectory;
+    private readonly string? previousExecutable = Program.PreviousExecutable;
     private readonly string isolatedDirectory = Path.Combine(Path.GetTempPath(), "wyrmwatch-ui-state-" + Guid.NewGuid().ToString("N"));
     private bool disposed;
 
@@ -17,6 +18,7 @@ public abstract class IsolatedDesktopTest : IDisposable
         Program.Demo = false;
         Program.HeadlessTest = true;
         Program.Minimized = Program.ApplyStartup = false;
+        Program.PreviousExecutable = null;
         Program.DataDirectory = isolatedDirectory;
     }
 
@@ -27,6 +29,7 @@ public abstract class IsolatedDesktopTest : IDisposable
         Program.Demo = demo; Program.HeadlessTest = headless;
         Program.Minimized = minimized; Program.ApplyStartup = applyStartup;
         Program.DataDirectory = directory;
+        Program.PreviousExecutable = previousExecutable;
         if (Directory.Exists(isolatedDirectory)) Directory.Delete(isolatedDirectory, true);
     }
 }

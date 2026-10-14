@@ -12,7 +12,7 @@ public partial class MainWindow
 {
     private AppRelease? appRelease;
     private PreparedUpdate? preparedUpdate;
-    private bool checkingApp, downloadingApp, switchingApp, appServiceHandoffRequired;
+    private bool checkingApp, downloadingApp, switchingApp, appServiceHandoffRequired, appRestartFailed;
     private CancellationTokenSource? appDownloadCancellation;
     private readonly Stopwatch appUpdateClock = new();
     private readonly DispatcherTimer appUpdateTimer = new() { Interval = TimeSpan.FromSeconds(1) };
@@ -20,6 +20,7 @@ public partial class MainWindow
     private TimeSpan appUpdateLastActivityElapsed;
     private int appDownloadAttempt;
     internal Func<AppUpdates> AppUpdateClientFactory { private get; set; } = () => new();
+    internal Func<PreparedUpdate, Task>? AppUpdateRestartOverride { private get; set; }
     private static string AppRuntime => OperatingSystem.IsWindows() ? "win-x64" : "linux-x64";
 
     private void InitializeAppUpdateControls()
@@ -33,19 +34,20 @@ public partial class MainWindow
     {
         var busy = checkingApp || downloadingApp || switchingApp;
         CheckAppButton.IsEnabled = !busy && !Program.Demo;
-        DownloadAppButton.IsEnabled = !busy && !Program.Demo && appRelease is not null;
+        DownloadAppButton.IsEnabled = !busy && !Program.Demo && appRelease is not null && preparedUpdate is null;
         SwitchAppButton.IsEnabled = !busy && !Program.Demo && preparedUpdate is not null && !appServiceHandoffRequired;
+        SwitchAppButton.IsVisible = preparedUpdate is not null && appRestartFailed && !appServiceHandoffRequired;
         CancelAppDownloadButton.IsEnabled = downloadingApp && appDownloadCancellation is { IsCancellationRequested: false };
         AppDownloadProgress.IsVisible = busy;
         AppUpdateHint.Text = Program.Demo ? "App update actions are disabled in the demo workspace. Open published releases to review versions."
             : switchingApp ? "Wait for the app handoff to finish. This step cannot be cancelled here."
-            : checkingApp ? "Checking the official release. Download and open become available after this check finishes."
+            : checkingApp ? "Checking the official release."
             : downloadingApp && appDownloadCancellation?.IsCancellationRequested == true ? "Cancellation requested. Wait for the download or verification to stop before trying again."
-            : downloadingApp ? "Download and verification are in progress. You can cancel this preparation; your current app is retained."
+            : downloadingApp ? "Downloading and verifying the update. Wyrmwatch will restart when it is ready."
             : appServiceHandoffRequired ? "Stop the service when idle, update its registered application path to the verified version, and restart it before opening the new desktop app."
-            : preparedUpdate is not null ? $"Wyrmwatch {preparedUpdate.Version} is verified. Open the updated version when ready; your current app is retained."
-            : appRelease is not null ? "Download this release to verify and prepare it before opening the updated version."
-            : "Check for an app update first. Download requires an available release; opening requires a verified package.";
+            : preparedUpdate is not null ? $"Wyrmwatch {preparedUpdate.Version} is verified. Retry the app restart when the manager is idle."
+            : appRelease is not null ? "Download and update will verify the package and restart Wyrmwatch. Your game server keeps running."
+            : "Check for an app update first.";
     }
     private void BeginAppUpdate(string status)
     {
@@ -106,12 +108,13 @@ public partial class MainWindow
     private async void DownloadManagerUpdate(object? sender, RoutedEventArgs e) => await DownloadManagerUpdateAsync();
     internal async Task DownloadManagerUpdateAsync()
     {
-        if (appRelease is null || checkingApp || downloadingApp || switchingApp || Program.Demo) return;
+        if (appRelease is null || preparedUpdate is not null || checkingApp || downloadingApp || switchingApp || Program.Demo) return;
         var release = appRelease;
         var attempt = ++appDownloadAttempt;
         downloadingApp = true;
         preparedUpdate = null;
         appServiceHandoffRequired = false;
+        appRestartFailed = false;
         appDownloadCancellation = CancellationTokenSource.CreateLinkedTokenSource(closing.Token);
         if (model.ErrorDestination == "App updates") model.ClearError();
         BeginAppUpdate($"Connecting to download Wyrmwatch {release.Version}.");
@@ -147,6 +150,7 @@ public partial class MainWindow
             appDownloadCancellation = null;
             EndAppUpdate();
         }
+        if (preparedUpdate is not null && !closing.IsCancellationRequested) await SwitchManagerVersionAsync();
     }
     private void CancelManagerDownload(object? sender, RoutedEventArgs e)
     {
@@ -155,10 +159,13 @@ public partial class MainWindow
         SetAppUpdateActivity("Cancellation requested · waiting for download preparation to stop.");
         UpdateAppUpdateControls();
     }
-    private async void SwitchManagerVersion(object? sender, RoutedEventArgs e)
+    private async void SwitchManagerVersion(object? sender, RoutedEventArgs e) => await SwitchManagerVersionAsync();
+    internal async Task SwitchManagerVersionAsync()
     {
         if (preparedUpdate is null || Program.Demo || checkingApp || downloadingApp || switchingApp || appServiceHandoffRequired) return;
         switchingApp = true;
+        appRestartFailed = false;
+        if (model.ErrorDestination == "App updates") model.ClearError();
         BeginAppUpdate("Checking the background manager before opening the verified app.");
         try
         {
@@ -170,9 +177,11 @@ public partial class MainWindow
                 model.Notice = $"The update is staged at {preparedUpdate.Directory}. Stop the service when idle, update its registered application path, and restart it before opening the new desktop app.";
                 return;
             }
-            if (!await Confirm("Open the updated manager?", $"Wyrmwatch {preparedUpdate.Version} will open with your existing connections. The background manager will reconnect. Your game server will keep running, and the previous app is retained.", "Open updated version"))
+            if (service.Busy) throw new IOException("The manager is completing a server operation. The update is verified; use Restart to update when that operation finishes.");
+            if (AppUpdateRestartOverride is { } restart)
             {
-                SetAppUpdateActivity($"Version {preparedUpdate.Version} remains verified and ready. Open it when ready.");
+                await restart(preparedUpdate);
+                SetAppUpdateActivity("Updated manager opened.");
                 return;
             }
             SetAppUpdateActivity("Opening the verified app and reconnecting the background manager.");
@@ -180,18 +189,22 @@ public partial class MainWindow
             await service!.StopAgentAsync();
             using var current = Process.GetCurrentProcess();
             var launch = new ProcessStartInfo(preparedUpdate.Executable) { UseShellExecute = false, WorkingDirectory = preparedUpdate.Directory };
-            foreach (var argument in new[] { "--data-dir", Program.DataDirectory, "--wait-for-parent", current.Id.ToString(), ProcessLifetime.Token(current), "--apply-startup" }) launch.ArgumentList.Add(argument);
+            foreach (var argument in new[] { "--data-dir", Program.DataDirectory, "--wait-for-parent", current.Id.ToString(), ProcessLifetime.Token(current), "--apply-startup", "--previous-executable", Environment.ProcessPath! }) launch.ArgumentList.Add(argument);
             using var child = Process.Start(launch) ?? throw new IOException("Could not open the updated manager.");
             exitRequested = true; closing.Cancel(); tray?.Dispose(); (Avalonia.Application.Current!.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime)?.Shutdown();
         }
         catch (Exception error)
         {
+            appRestartFailed = true;
             var detail = error.Message;
-            service!.Resume();
-            try { await service.EnsureStartedAsync(); }
-            catch (Exception reconnect) { detail += Environment.NewLine + "Manager reconnection: " + reconnect.Message; }
+            if (AppUpdateRestartOverride is null)
+            {
+                service!.Resume();
+                try { await service.EnsureStartedAsync(); }
+                catch (Exception reconnect) { detail += Environment.NewLine + "Manager reconnection: " + reconnect.Message; }
+            }
             SetAppUpdateActivity("Could not open the updated app. The verified package is retained. Review diagnostics before trying again.");
-            model.ReportError("The app update handoff failed. The verified package is retained; review diagnostics before trying again.", detail, "Help & diagnostics", "Open diagnostics");
+            model.ReportError("Wyrmwatch could not restart to apply the update. The verified package is retained; retry when the manager is idle.", detail, "App updates", "Open App updates");
         }
         finally { agentTransition = false; switchingApp = false; EndAppUpdate(); }
     }

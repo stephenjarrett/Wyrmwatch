@@ -72,6 +72,13 @@ try {
     Set-Content -LiteralPath $world -Value 'replacement dummy world'
     Request-Json Post '/api/servers/package-fixture/actions' @{Action='restore';Archive=$backups[0].Id;Confirmation=$connected.Name} | Out-Null
     if((Get-FileHash -LiteralPath $world).Hash -ne $originalWorld -or (Get-FileHash -LiteralPath $config).Hash -ne $originalConfig){throw 'Packaged restore did not recover the original dummy files'}
+    $values=@{OwnerId='dummy-owner';ServerName='Package fixture';DefaultWorldName='Dummy';AdminPassword='dummy-package-private';WorldPassword='';Port='7799'}
+    Request-Json Post '/api/servers/package-fixture/actions' @{Action='configuration';Values=$values} | Out-Null
+    $rewritten=(Get-Content -LiteralPath $config -Raw) -replace '(?m)^AdminPassword=.*\r?\n',''
+    Set-Content -LiteralPath $config -Value $rewritten -NoNewline
+    $preferences=Request-Json Get '/admin/settings'
+    $preferences.FollowLog=$false
+    Request-Json Put '/admin/preferences' $preferences | Out-Null
     Request-Json Post '/admin/shutdown' | Out-Null
     if(-not $process.WaitForExit(15000) -or $process.ExitCode -ne 0){throw 'Packaged agent did not shut down cleanly'}
     $process.Dispose()
@@ -82,13 +89,31 @@ try {
     $headers=@{Authorization='Bearer '+$endpoint.Secret}
     $settings=Request-Json Get '/admin/settings'
     if(@($settings.Servers).Count -ne 1 -or $settings.Servers[0].Name -ne $connected.Name -or $settings.Servers[0].UpdateMinutes -ne 30){throw 'Packaged restart lost the saved profile'}
+    if($settings.FollowLog){throw 'Packaged restart lost the Follow log preference'}
+    $configuration=Request-Json Get '/admin/servers/package-fixture/configuration'
+    if($configuration.AdminPassword -ne $values.AdminPassword){throw 'Packaged manager lost the retained dummy admin password'}
+    if((Get-Content -LiteralPath $config -Raw).Contains('AdminPassword=')){throw 'Reading retained settings wrote game configuration'}
+    if($IsWindows){
+        [Reflection.Assembly]::LoadFrom((Join-Path $app 'Wyrmwatch.Core.dll')) | Out-Null
+        $desktopAssembly=[Reflection.Assembly]::LoadFrom((Join-Path $app 'Wyrmwatch.dll'))
+        $retarget=$desktopAssembly.GetType('Wyrmwatch.Desktop.DesktopIntegration').GetMethod('RetargetShortcut',[Reflection.BindingFlags]'NonPublic,Static')
+        $shell=New-Object -ComObject WScript.Shell
+        $linkPath=Join-Path $testRoot 'Wyrmwatch.lnk'
+        $previous=Join-Path $testRoot 'previous-dummy.exe'
+        $current=Join-Path $testRoot 'updated-dummy.exe'
+        $link=$shell.CreateShortcut($linkPath); $link.TargetPath=$previous; $link.Arguments='--data-dir "dummy workspace"'; $link.Save()
+        $retarget.Invoke($null,[object[]]([string[]]@($linkPath,$previous,$current))) | Out-Null
+        $updated=$shell.CreateShortcut($linkPath)
+        if($updated.TargetPath -ne $current -or $updated.Arguments -ne $link.Arguments -or -not (Test-Path -LiteralPath ($linkPath+'.bak'))){throw 'Published app shortcut handoff lost its target, arguments or backup'}
+        foreach($com in @($updated,$link,$shell)){[Runtime.InteropServices.Marshal]::FinalReleaseComObject($com) | Out-Null}
+    }
     Request-Json Delete '/admin/profiles/package-fixture' | Out-Null
     $state=Request-Json Get '/api/status'
     if(@($state.Servers).Count -ne 0 -or (Get-FileHash -LiteralPath $world).Hash -ne $originalWorld){throw 'Packaged disconnect changed dummy world files'}
     if(-not (Test-Path -LiteralPath (Join-Path $profile.BackupPath $backups[0].Id))){throw 'Packaged disconnect removed a backup'}
     Request-Json Post '/admin/shutdown' | Out-Null
     if(-not $process.WaitForExit(15000) -or $process.ExitCode -ne 0){throw 'Packaged agent did not shut down cleanly'}
-    Write-Host 'PASS: packaged launcher, bundled runtime, empty workspace, import/edit, backup/verify/restore, persisted restart, disconnect preservation, clean shutdown.'
+    Write-Host 'PASS: packaged launcher/runtime, import/edit, backup/verify/restore, retained admin password, Follow log, shortcut handoff, persisted restart, disconnect preservation, clean shutdown.'
 } finally {
     # This process owns only the disposable workspace and non-executable dummy launcher.
     if(-not $process.HasExited){$process.Kill();$process.WaitForExit()}
