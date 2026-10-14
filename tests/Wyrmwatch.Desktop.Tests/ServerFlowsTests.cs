@@ -22,6 +22,39 @@ namespace Wyrmwatch.Desktop.Tests;
 public class ServerFlowsTests : IsolatedDesktopTest
 {
     [AvaloniaFact]
+    public async Task ActivityFollowLogPreferenceAndRetainedAdminSurviveReopen()
+    {
+        await using var fixture = await Lab.StartAsync();
+        var profile = fixture.Existing("Activity fixture");
+        await fixture.Client().ImportProfileAsync(profile);
+        new AdminPasswordStore(fixture.Store).Remember(profile, "dummy-private");
+        File.WriteAllText(profile.ConfigPath, File.ReadAllText(profile.ConfigPath).Replace("AdminPassword=dummy-private\n", ""));
+        fixture.Window.Close();
+        using var client = fixture.Client();
+        var window = new MainWindow(client); window.Show();
+        try
+        {
+            window.ShowPage(WorkspacePage.Activity);
+            Assert.True(Field<ToggleSwitch>(window, "LiveServerLog").IsChecked);
+            Assert.Equal("dummy-private", Field<TextBox>(window, "AdminPassword").Text);
+            var gameLog = string.Join('\n', Enumerable.Range(0, 200).Select(i => $"12:00:{i % 60:00}  [Dummy server] fixture log entry {i} " + new string('x', 150)));
+            window.DisplayServerLog(gameLog);
+            Assert.Equal(gameLog.Length, Field<TextBox>(window, "ServerLogText").CaretIndex);
+            Field<ToggleSwitch>(window, "LiveServerLog").IsChecked = false;
+            await Until(() => !fixture.Store.Read("settings.json", () => new ManagerSettings()).FollowLog && Field<ToggleSwitch>(window, "LiveServerLog").IsEnabled);
+            Assert.False(fixture.Store.Read("settings.json", () => new ManagerSettings()).FollowLog);
+            Field<TextBox>(window, "ServerLogText").CaretIndex = 0;
+            window.DisplayServerLog(gameLog + "\nnew fixture entry");
+            Assert.Equal(0, Field<TextBox>(window, "ServerLogText").CaretIndex);
+            using var secondClient = fixture.Client();
+            var reopened = new MainWindow(secondClient); reopened.Show();
+            try { Assert.False(Field<ToggleSwitch>(reopened, "LiveServerLog").IsChecked); }
+            finally { reopened.Close(); }
+            Capture(window, "activity-follow-log.png");
+        }
+        finally { window.Close(); }
+    }
+    [AvaloniaFact]
     public async Task ImportWizardRecoversOwnedPreparedSnapshotAfterOriginalSourceDisappears()
     {
         await using var fixture = await Lab.StartAsync();
@@ -300,7 +333,7 @@ public class ServerFlowsTests : IsolatedDesktopTest
         Assert.Equal("Setup did not finish", Field<TextBlock>(dialog, "CreateReviewHeading").Text);
         Assert.Empty(fixture.Store.Read("settings.json", () => new ManagerSettings()).Servers);
         var model = (WorkspaceModel)fixture.Window.DataContext!;
-        Assert.True(model.HasError); Assert.Contains("World import stopped", model.ErrorSummary);
+        Assert.True(model.HasError); Assert.Contains("World import failed", model.ErrorSummary);
         Assert.Equal(original, File.ReadAllBytes(source));
         Click(dialog, Field<Button>(dialog, "CreateBack"));
         Click(dialog, Field<Button>(dialog, "CreateNext"));

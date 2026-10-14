@@ -5,10 +5,10 @@
 The App updates page checks stable releases in `stephenjarrett/Wyrmwatch`. Checks run only when you press the check button; there is no automatic app-release watcher. Game updates remain a separate automation setting.
 
 1. Check for a release and review its notes.
-2. Download the platform package. Its size and GitHub-published SHA-256 digest must match before extraction.
-3. Open the staged version when no operation is running. The current desktop closes, the idle background agent reconnects, and game processes keep running.
+2. Press **Download and update**. Wyrmwatch downloads the platform package, verifies its size and GitHub-published SHA-256 digest, then restarts automatically with the same workspace. Game processes keep running.
+3. If a server operation is still running or the app cannot reopen, the verified package is retained. Use **Restart to update** once the manager is idle; no second download is needed.
 
-Downloads are limited in size, reject linked/traversing archive entries, and extract into a new folder under the workspace's `app-updates` directory. The existing application folder is retained. Launch-at-login is updated when enabled. No running executable is overwritten. A failed verification leaves the current version in place. Staged packages and old versions are not automatically deleted.
+Downloads are limited in size, reject linked/traversing archive entries, and extract into a new folder under the workspace's `app-updates` directory. The existing application folder is retained. Launch-at-login is updated when enabled. On Windows, an existing Wyrmwatch desktop shortcut is retargeted to the new version; its arguments and a backup of the previous shortcut are retained. Other shortcuts are left alone. No running executable is overwritten. A failed verification leaves the current version in place. Staged packages and old versions are not automatically deleted.
 
 For a service or explicitly started standalone agent, the desktop stages the package but does not replace the running host. Stop that agent when idle, update its registered executable path, and start it before opening the new desktop. Keep the same workspace. To return to the previous app, close the idle new manager and open the previous executable; restore preferences from a retained backup if a future version changes their format.
 

@@ -56,6 +56,7 @@ public sealed record ManagerSettings
     public bool LaunchAtLogin { get; init; }
     public bool BackgroundMode { get; init; }
     public bool ReduceMotion { get; init; } = true;
+    public bool FollowLog { get; init; } = true;
     public string Language { get; init; } = "en";
 }
 
