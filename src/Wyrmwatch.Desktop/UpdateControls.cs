@@ -198,7 +198,7 @@ public partial class MainWindow
             agentTransition = true;
             if (preparedUpdate.Installer)
             {
-                var root = AppContext.BaseDirectory;
+                var root = Wyrmwatch.Platform.WindowsPhysicalPath.ExistingDirectory(AppContext.BaseDirectory);
                 if (!File.Exists(Path.Combine(root, "unins000.exe"))) throw new IOException("Install this release once with its Windows setup program to enable updates at a stable shortcut path.");
                 if (SafePaths.Same(Program.DataDirectory, root) || SafePaths.Within(Program.DataDirectory, root) || SafePaths.Within(root, Program.DataDirectory))
                     throw new IOException("The workspace must be outside the application installation before updating.");

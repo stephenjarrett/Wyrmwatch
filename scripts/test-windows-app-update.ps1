@@ -2,6 +2,10 @@ $ErrorActionPreference='Stop'
 if($env:CI -cne 'true'){throw 'Native app update tests require a disposable Windows CI host'}
 $fixture=(Get-Content dist/native-update-fixture-path.txt -Raw).Trim()
 if((Split-Path -Leaf $fixture) -notmatch '^wyrmwatch-update-fixture-[a-z0-9_]+$'){throw 'Unexpected fixture root'}
+[Reflection.Assembly]::LoadFrom((Join-Path $PSScriptRoot '../dist/win-x64/Wyrmwatch.Platform.dll')) | Out-Null
+# Runner TEMP can use RUNNER~1 while Windows shortcuts and the restarted app use
+# runneradmin. Resolve the same physical fixture before creating its workspace.
+$fixture=[Wyrmwatch.Platform.WindowsPhysicalPath]::ExistingDirectory($fixture)
 $spec=Get-Content (Join-Path $fixture fixture.json) -Raw | ConvertFrom-Json
 $app=Join-Path $fixture app
 $workspace=Join-Path $fixture workspace
@@ -84,7 +88,10 @@ function Assert-Shortcuts([string]$Version) {
         foreach($path in @((Join-Path ([Environment]::GetFolderPath('DesktopDirectory')) Wyrmwatch.lnk),(Join-Path ([Environment]::GetFolderPath('Programs')) 'Wyrmwatch/Wyrmwatch.lnk'))) {
             $link=$shell.CreateShortcut($path)
             try {
-                if($link.TargetPath -ne (Join-Path $app Wyrmwatch.exe) -or -not $link.Arguments.Contains($workspace)){throw 'Shortcut does not preserve installed path and workspace'}
+                if($link.TargetPath -ne (Join-Path $app Wyrmwatch.exe) -or -not $link.Arguments.Contains($workspace)){
+                    Write-Host "Fixture shortcut target: $($link.TargetPath); expected: $(Join-Path $app Wyrmwatch.exe); workspace preserved: $($link.Arguments.Contains($workspace))"
+                    throw 'Shortcut does not preserve installed path and workspace'
+                }
             } finally {[Runtime.InteropServices.Marshal]::FinalReleaseComObject($link) | Out-Null}
             Start-Process -FilePath $path | Out-Null
             Wait-Agent $Version | Out-Null
