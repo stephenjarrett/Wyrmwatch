@@ -1,5 +1,6 @@
-param([Parameter(Mandatory)][string]$Installer)
+param([Parameter(Mandatory)][string]$Installer,[string]$FaultInstaller)
 $ErrorActionPreference='Stop'
+if($env:CI -cne 'true'){throw 'Installer lifecycle tests require a disposable CI host; never register the test product on a live user machine'}
 $installerPath=(Resolve-Path -LiteralPath $Installer).Path
 $testRoot=Join-Path ([IO.Path]::GetTempPath()) ('wyrmwatch-installer-'+[Guid]::NewGuid().ToString('N'))
 $app=Join-Path $testRoot 'app'
@@ -7,11 +8,29 @@ $workspace=Join-Path $testRoot 'workspace'
 New-Item -ItemType Directory -Path $workspace -Force | Out-Null
 $sentinel=Join-Path $workspace 'preserve.txt'
 Set-Content -LiteralPath $sentinel -Value 'preserve-user-data'
-function Install-Package {
-    $process=Start-Process -FilePath $installerPath -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-',('/DIR="'+$app+'"'),'/GROUP="Wyrmwatch Installer Test"' -WindowStyle Hidden -PassThru -Wait
+function Wait-Recovery {
+    $deadline=(Get-Date).AddSeconds(60)
+    do {
+        $matching=@(Get-ChildItem -LiteralPath ([IO.Path]::GetTempPath()) -Directory -Filter 'wyrmwatch-install-*' | Where-Object {
+            $journal=Join-Path $_.FullName 'installation.json'
+            (Test-Path -LiteralPath $journal) -and (Get-Content -LiteralPath $journal -Raw | ConvertFrom-Json).Root -eq $app
+        } | Sort-Object CreationTimeUtc -Descending)
+        if($matching.Count -gt 0 -and (Test-Path -LiteralPath (Join-Path $matching[0].FullName 'completed.json'))) {
+            $receipt=Get-Content -LiteralPath (Join-Path $matching[0].FullName 'completed.json') -Raw | ConvertFrom-Json
+            $helper=Get-Process -Id $receipt.ProcessId -ErrorAction SilentlyContinue
+            if($helper -and -not $helper.WaitForExit(15000)){throw 'Fixture recovery helper did not exit'}
+            return $matching[0].FullName
+        }
+        Start-Sleep -Milliseconds 200
+    } while((Get-Date) -lt $deadline)
+    throw 'Installer recovery did not complete; originals retained for diagnosis'
+}
+function Install-Package([string]$Source=$installerPath,[switch]$ExpectRecovery) {
+    $process=Start-Process -FilePath $Source -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-',('/DIR="'+$app+'"'),'/GROUP="Wyrmwatch Installer Test"' -WindowStyle Hidden -PassThru -Wait
+    if($ExpectRecovery){$script:lastRecovery=Wait-Recovery}
     return $process.ExitCode
 }
-if((Install-Package) -ne 0){throw 'Fresh installation failed'}
+if((Install-Package -ExpectRecovery) -ne 0){throw 'Fresh installation failed'}
 foreach($file in @('Wyrmwatch.exe','agent/Wyrmwatch.Agent.exe','LICENSE','Wyrmwatch-source.zip','unins000.exe')) {
     if(-not (Test-Path -LiteralPath (Join-Path $app $file))){throw "Installer omitted $file"}
 }
@@ -42,11 +61,22 @@ try {
     # Keep failed fixtures available; do not terminate an agent with unknown work.
     $headers=$null
 }
-if((Install-Package) -ne 0){throw 'Reinstallation after clean shutdown failed'}
+if((Install-Package -ExpectRecovery) -ne 0){throw 'Reinstallation after clean shutdown failed'}
 foreach($oldFile in $obsoleteFiles) {
     if(Test-Path -LiteralPath (Join-Path $app $oldFile)){throw "Upgrade left obsolete package file: $oldFile"}
 }
 if((Get-Content -LiteralPath $unrelated -Raw).Trim() -ne 'preserve-unrelated-file'){throw 'Upgrade changed an unrelated file'}
+if($FaultInstaller) {
+    $readme=Join-Path $app 'README.md'
+    $replacementHash=(Get-FileHash -LiteralPath $readme -Algorithm SHA256).Hash
+    Set-Content -LiteralPath $readme -Value 'previous working version README fixture'
+    $previousHash=(Get-FileHash -LiteralPath $readme -Algorithm SHA256).Hash
+    if((Install-Package -Source (Resolve-Path -LiteralPath $FaultInstaller).Path -ExpectRecovery) -eq 0){throw 'Fault installer unexpectedly succeeded'}
+    if((Get-Content -LiteralPath (Join-Path $lastRecovery 'fault-observed.txt') -Raw).Trim() -ine $replacementHash){throw 'Fault fixture did not prove replacement before failure'}
+    if((Get-FileHash -LiteralPath $readme -Algorithm SHA256).Hash -cne $previousHash){throw 'Failed installer did not restore original application bytes'}
+    if((Get-Content -LiteralPath $unrelated -Raw).Trim() -ne 'preserve-unrelated-file'){throw 'Recovery changed an unrelated file'}
+    if((Install-Package -ExpectRecovery) -ne 0){throw 'Retry after restored failure did not succeed'}
+}
 $uninstall=Start-Process -FilePath (Join-Path $app 'unins000.exe') -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -WindowStyle Hidden -PassThru -Wait
 if($uninstall.ExitCode -ne 0){throw 'Uninstallation failed'}
 if(Test-Path -LiteralPath (Join-Path $app 'Wyrmwatch.exe')){throw 'Uninstaller left packaged executable'}

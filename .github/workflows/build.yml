@@ -52,7 +52,12 @@ jobs:
       - name: Verify Windows installer lifecycle
         if: runner.os == 'Windows'
         shell: pwsh
-        run: ./scripts/test-windows-installer.ps1 -Installer (Get-ChildItem dist/*-setup.exe).FullName
+        run: |
+          New-Item -ItemType Directory -Path dist/fault -Force | Out-Null
+          Copy-Item -LiteralPath dist/win-x64 -Destination dist/fault/win-x64 -Recurse
+          python scripts/package-installers.py win-x64 --output-root dist/fault --test-fault-after-files
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./scripts/test-windows-installer.ps1 -Installer (Get-ChildItem dist/*-setup.exe).FullName -FaultInstaller (Get-ChildItem dist/fault/*-setup.exe).FullName
       - name: Verify low-privilege Windows service
         if: runner.os == 'Windows'
         shell: pwsh
@@ -66,6 +71,28 @@ jobs:
           name: Linux-desktop-smoke
           path: dist/linux-desktop-smoke.png
           if-no-files-found: error
+      - name: Install update signing tool
+        if: runner.os == 'Windows' && ((github.ref == 'refs/heads/master' && github.event_name != 'pull_request') || (github.ref == 'refs/heads/sjarrett/stable-app-updates' && github.event_name == 'push' && github.actor == 'stephenjarrett'))
+        shell: pwsh
+        run: dotnet tool install NetSparkleUpdater.Tools.AppCastGenerator --version 2.9.0 --allow-roll-forward --tool-path "$env:RUNNER_TEMP/netsparkle"
+      - name: Verify dedicated signing key without publishing an update
+        if: runner.os == 'Windows' && github.ref == 'refs/heads/sjarrett/stable-app-updates' && github.event_name == 'push' && github.actor == 'stephenjarrett'
+        shell: pwsh
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.WYRM_WATCH_UPDATE_SIGNING_KEY }}
+        run: ./scripts/test-update-signing.ps1 -Tool "$env:RUNNER_TEMP/netsparkle/netsparkle-generate-appcast.exe" -Output "$env:RUNNER_TEMP/signing-proof"
+      - uses: actions/upload-artifact@v4
+        if: runner.os == 'Windows' && github.ref == 'refs/heads/sjarrett/stable-app-updates' && github.event_name == 'push' && github.actor == 'stephenjarrett'
+        with:
+          name: update-signing-proof
+          path: ${{ runner.temp }}/signing-proof/
+          if-no-files-found: error
+      - name: Sign Windows update catalog
+        if: runner.os == 'Windows' && github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
+        shell: pwsh
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.WYRM_WATCH_UPDATE_SIGNING_KEY }}
+        run: ./scripts/sign-update-catalog.ps1 -Tool "$env:RUNNER_TEMP/netsparkle/netsparkle-generate-appcast.exe"
       - uses: actions/upload-artifact@v4
         with:
           name: Wyrmwatch-${{ matrix.runtime }}
@@ -79,6 +106,7 @@ jobs:
             dist/Wyrmwatch-*.exe
             dist/Wyrmwatch-*.deb
             dist/Wyrmwatch-*.sha256
+            dist/Wyrmwatch-update.json*
           if-no-files-found: error
   notify-handoff:
     name: Notify trusted release handoff

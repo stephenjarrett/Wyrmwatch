@@ -76,6 +76,16 @@ jobs:
           dotnet publish tests/FixtureServer -c Release -r win-x64 --self-contained true -o dist/service-fixture
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           ./scripts/test-windows-service.ps1 -ApplicationDirectory dist/win-x64 -FixtureDirectory dist/service-fixture
+      - name: Install update signing tool
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: dotnet tool install NetSparkleUpdater.Tools.AppCastGenerator --version 2.9.0 --allow-roll-forward --tool-path "$env:RUNNER_TEMP/netsparkle"
+      - name: Sign Windows update catalog
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.WYRM_WATCH_UPDATE_SIGNING_KEY }}
+        run: ./scripts/sign-update-catalog.ps1 -Tool "$env:RUNNER_TEMP/netsparkle/netsparkle-generate-appcast.exe"
       - uses: actions/upload-artifact@v4
         with:
           name: release-${{ matrix.runtime }}
@@ -85,6 +95,7 @@ jobs:
             dist/Wyrmwatch-*.exe
             dist/Wyrmwatch-*.deb
             dist/Wyrmwatch-*.sha256
+            dist/Wyrmwatch-update.json*
           if-no-files-found: error
   notify-handoff:
     name: Notify trusted release handoff

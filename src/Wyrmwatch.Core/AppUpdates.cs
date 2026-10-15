@@ -6,10 +6,12 @@ using System.Text.Json;
 
 namespace Wyrmwatch.Core;
 
-public sealed record AppRelease(string Version, string Notes, string Page, string Download, string Digest, long Bytes);
-public sealed record PreparedUpdate(string Version, string Directory, string Executable);
+public sealed record UpdateAsset(string Download, string Digest, long Bytes);
+public sealed record UpdateCatalog(UpdateAsset Metadata, UpdateAsset Signature);
+public sealed record AppRelease(string Version, string Notes, string Page, string Download, string Digest, long Bytes, UpdateCatalog? Catalog = null);
+public sealed record PreparedUpdate(string Version, string Directory, string Executable, bool Installer = false, string? Catalog = null, string? Signature = null);
 
-public sealed class AppUpdates(Func<HttpClient>? createClient = null)
+public sealed class AppUpdates(Func<HttpClient>? createClient = null, bool installedWindows = false)
 {
     public const string Repository = "stephenjarrett/Wyrmwatch";
     public const long DownloadLimit = 600L * 1024 * 1024;
@@ -20,13 +22,14 @@ public sealed class AppUpdates(Func<HttpClient>? createClient = null)
         client.DefaultRequestHeaders.Add("X-GitHub-Api-Version", "2022-11-28");
         return client;
     }
-    public static AppRelease? ParseRelease(string json, Version current, string runtime)
+    public static AppRelease? ParseRelease(string json, Version current, string runtime, bool installedWindows = false)
     {
         using var document = JsonDocument.Parse(json); var root = document.RootElement;
         if (root.GetProperty("draft").GetBoolean() || root.GetProperty("prerelease").GetBoolean()) return null;
         var tag = root.GetProperty("tag_name").GetString() ?? "";
         if (!Version.TryParse(tag.TrimStart('v'), out var version) || version <= current) return null;
-        var name = runtime == "win-x64" ? "Wyrmwatch-win-x64.zip" : "Wyrmwatch-linux-x64.tar.gz";
+        var installer = installedWindows && runtime == "win-x64";
+        var name = installer ? $"Wyrmwatch-{version}-win-x64-setup.exe" : runtime == "win-x64" ? "Wyrmwatch-win-x64.zip" : "Wyrmwatch-linux-x64.tar.gz";
         var asset = root.GetProperty("assets").EnumerateArray().FirstOrDefault(a => a.GetProperty("name").GetString() == name);
         if (asset.ValueKind == JsonValueKind.Undefined) throw new IOException("The release does not contain a package for this platform.");
         var download = asset.GetProperty("browser_download_url").GetString() ?? "";
@@ -34,7 +37,25 @@ public sealed class AppUpdates(Func<HttpClient>? createClient = null)
         var digest = asset.TryGetProperty("digest", out var d) ? d.GetString() ?? "" : "";
         if (!digest.StartsWith("sha256:", StringComparison.Ordinal) || digest.Length != 71 || !digest[7..].All(Uri.IsHexDigit)) throw new IOException("This release has no valid SHA-256 digest. Automatic download is unavailable.");
         var bytes = asset.GetProperty("size").GetInt64(); if (bytes <= 0 || bytes > DownloadLimit) throw new IOException("The release package has an unsupported size.");
-        return new(version.ToString(), root.GetProperty("body").GetString() ?? "", $"https://github.com/{Repository}/releases/tag/{Uri.EscapeDataString(tag)}", download, digest[7..], bytes);
+        UpdateCatalog? catalog = null;
+        if (installer)
+        {
+            UpdateAsset CatalogAsset(string file, long limit)
+            {
+                var item = root.GetProperty("assets").EnumerateArray().FirstOrDefault(a => a.GetProperty("name").GetString() == file);
+                if (item.ValueKind == JsonValueKind.Undefined) throw new IOException("This release has no signed update catalog. Nothing was installed.");
+                var url = item.GetProperty("browser_download_url").GetString() ?? "";
+                var hash = item.TryGetProperty("digest", out var h) ? h.GetString() ?? "" : "";
+                var length = item.GetProperty("size").GetInt64();
+                if (url != $"https://github.com/{Repository}/releases/download/{tag}/{file}" ||
+                    !hash.StartsWith("sha256:", StringComparison.Ordinal) || hash.Length != 71 || !hash[7..].All(Uri.IsHexDigit) || length <= 0 || length > limit)
+                    throw new IOException("The signed update catalog metadata is invalid.");
+                return new(url, hash[7..], length);
+            }
+            if (download != $"https://github.com/{Repository}/releases/download/{tag}/{name}") throw new IOException("The update installer does not match this release.");
+            catalog = new(CatalogAsset("Wyrmwatch-update.json", 64 * 1024), CatalogAsset("Wyrmwatch-update.json.sig", 1024));
+        }
+        return new(version.ToString(), root.GetProperty("body").GetString() ?? "", $"https://github.com/{Repository}/releases/tag/{Uri.EscapeDataString(tag)}", download, digest[7..], bytes, catalog);
     }
     public async Task<AppRelease?> CheckAsync(Version current, string runtime, CancellationToken token = default)
     {
@@ -42,13 +63,25 @@ public sealed class AppUpdates(Func<HttpClient>? createClient = null)
         using var response = await client.GetAsync($"https://api.github.com/repos/{Repository}/releases/latest", token);
         if (response.StatusCode == HttpStatusCode.NotFound) return null;
         response.EnsureSuccessStatusCode();
-        return ParseRelease(await response.Content.ReadAsStringAsync(token), current, runtime);
+        return ParseRelease(await response.Content.ReadAsStringAsync(token), current, runtime, installedWindows);
     }
     public async Task<PreparedUpdate> DownloadAsync(AppRelease release, string destination, string runtime, IProgress<double>? progress = null, CancellationToken token = default)
     {
         SafePaths.NoLinks(destination); Directory.CreateDirectory(destination);
         var staging = Path.Combine(destination, $"{release.Version}-{Guid.NewGuid():N}"); Directory.CreateDirectory(staging);
-        var package = Path.Combine(staging, runtime == "win-x64" ? "download.zip" : "download.tar.gz");
+        var package = Path.Combine(staging, release.Catalog is not null ? "update-setup.exe" : runtime == "win-x64" ? "download.zip" : "download.tar.gz");
+        await DownloadFileAsync(release, package, progress, token);
+        if (release.Catalog is { } catalog)
+        {
+            var metadata = Path.Combine(staging, "Wyrmwatch-update.json"); var signature = metadata + ".sig";
+            foreach (var (asset, target) in new[] { (catalog.Metadata, metadata), (catalog.Signature, signature) })
+                await DownloadFileAsync(new(release.Version, "", "", asset.Download, asset.Digest, asset.Bytes), target, null, token);
+            return new(release.Version, staging, package, true, metadata, signature);
+        }
+        return await VerifyAndExtractAsync(package, release.Digest, staging, runtime, release.Version, token);
+    }
+    private async Task DownloadFileAsync(AppRelease release, string package, IProgress<double>? progress, CancellationToken token)
+    {
         using var client = createClient?.Invoke() ?? Client();
         var uri = new Uri(release.Download);
         HttpResponseMessage? response = null;
@@ -75,7 +108,9 @@ public sealed class AppUpdates(Func<HttpClient>? createClient = null)
                 }
                 if (total != release.Bytes) throw new IOException("The update download was incomplete.");
             }
-            return await VerifyAndExtractAsync(package, release.Digest, staging, runtime, release.Version, token);
+            await using var verified = File.OpenRead(package);
+            if (!Convert.ToHexString(await SHA256.HashDataAsync(verified, token)).Equals(release.Digest, StringComparison.OrdinalIgnoreCase))
+                throw new IOException("The update checksum did not match. Nothing was installed.");
         }
         finally { response?.Dispose(); }
     }

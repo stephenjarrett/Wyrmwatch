@@ -4,6 +4,7 @@ Uses the runner's normal gh session. Downloaded artifacts are data, never execut
 Release writers share a non-cancelling concurrency group. Published releases are immutable.
 """
 import argparse
+import base64
 import hashlib
 import io
 import json
@@ -75,8 +76,40 @@ def expected_files(version, runtime=None):
         "win-x64": {"Wyrmwatch-win-x64.zip", f"Wyrmwatch-{version}-win-x64-setup.exe"},
         "linux-x64": {"Wyrmwatch-linux-x64.tar.gz", f"Wyrmwatch-{version}-linux-amd64.deb"},
     }
+    if tuple(map(int, version.split('.'))) >= (0, 2, 8):
+        names['win-x64'] |= {'Wyrmwatch-update.json', 'Wyrmwatch-update.json.sig'}
     files = names[runtime] if runtime else set.union(*names.values())
     return files | {name + ".sha256" for name in files}
+
+
+def verify_update_catalog(files, version, source, public_key=None):
+    if tuple(map(int, version.split('.'))) < (0, 2, 8):
+        return
+    from cryptography.exceptions import InvalidSignature
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+    try:
+        content, signature = files['Wyrmwatch-update.json'], files['Wyrmwatch-update.json.sig']
+        require(0 < len(content) <= 65536 and 0 < len(signature) <= 1024, 'Invalid signed catalog size')
+        if public_key is None:
+            public_key = base64.b64decode((Path(__file__).resolve().parents[1] /
+                'src/Wyrmwatch.Desktop/Assets/UpdateSigning.pub').read_text().strip(), validate=True)
+        Ed25519PublicKey.from_public_bytes(public_key).verify(base64.b64decode(signature.strip(), validate=True), content)
+        catalog = json.loads(content)
+        require(type(catalog) is dict and set(catalog) == {'Schema', 'Version', 'SourceCommit', 'Artifacts'}
+                and type(catalog['Schema']) is int and catalog['Schema'] == 1
+                and catalog['Version'] == version and catalog['SourceCommit'] == source,
+                'Signed catalog does not match the approved version and source')
+        names = {'Wyrmwatch-win-x64.zip', f'Wyrmwatch-{version}-win-x64-setup.exe'}
+        require(type(catalog['Artifacts']) is list and len(catalog['Artifacts']) == 2,
+                'Signed catalog must describe both exact Windows packages')
+        require({item.get('Name') for item in catalog['Artifacts']} == names, 'Signed catalog package inventory mismatch')
+        for item in catalog['Artifacts']:
+            data = files[item['Name']]
+            require(set(item) == {'Name', 'Bytes', 'Sha256'} and type(item['Bytes']) is int
+                    and item['Bytes'] == len(data) and item['Sha256'] == sha(data),
+                    'Signed catalog package bytes do not match the tested candidate')
+    except (KeyError, ValueError, TypeError, OSError, InvalidSignature) as error:
+        raise ReleaseError('Missing or invalid update signature; publication is blocked') from error
 
 
 def unpack_artifact(blob, digest, expected):
@@ -294,6 +327,7 @@ class Manager:
             require(artifact["size_in_bytes"] <= MAX_ARTIFACT, "Artifact exceeds size bound")
             blob = self.api.download(f"{self.root}/actions/artifacts/{artifact['id']}/zip")
             files.update(unpack_artifact(blob, artifact.get("digest"), expected_files(self.version, runtime)))
+        verify_update_catalog(files, self.version, self.head)
         hashes = {name: sha(data) for name, data in files.items()}
         if old and old["phase"] == "ready" and old["sha"] == self.head and old["assets"] == hashes \
                 and existing["tag_name"] == self.tag:

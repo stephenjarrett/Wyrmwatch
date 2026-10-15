@@ -7,17 +7,20 @@ random, memory-only, and never printed. The owner must submit the private key to
 GitHub personally; authorization to prepare setup does not authorize the agent
 to transmit it.
 
-Prepared local directory: `%LOCALAPPDATA%\WyrmwatchSigning`.
+Prepared directory on this packaged Codex host resolves physically to
+`%USERPROFILE%\AppData\Local\Packages\OpenAI.Codex_2p2nqsd0c76g0\LocalCache\Local\WyrmwatchSigning`.
+Windows redirected the original logical Local AppData path into Codex's package
+cache; Explorer needs the physical path. No second key was generated.
 Its inherited permissions were disabled before generation and access is limited
 to the current Windows account. The private file has never been read by the agent or
 transmitted. The public key is embedded as `Assets/UpdateSigning.pub` with raw
 public-key SHA-256 fingerprint
 `F55BC01F275DBF16922F6796CAD810B8EBE448B68AB12C13EA9DE1513E042F52`.
 
-**Remaining owner step:** manually open `NetSparkle_Ed25519.priv` in that private
-directory and paste its contents into GitHub's **new repository secret** form,
-named `WYRM_WATCH_UPDATE_SIGNING_KEY`. Submit it yourself, clear your clipboard,
-and report only that it was added. The generation steps below document how the
+Stephen confirmed manually adding the private key as the GitHub repository
+secret `WYRM_WATCH_UPDATE_SIGNING_KEY`. Only its name and update timestamp were
+verified through the API. A CI proof must verify the key matches the committed
+public key without exposing private material. The generation steps below document how the
 prepared key was created; do not repeat them or replace this key.
 
 ## Owner steps after approval
@@ -76,9 +79,11 @@ of this handoff.
 `SignedUpdateCatalog` and isolated tests implement strict verification and bind
 the catalog to the official GitHub release digest/size, then recheck local file
 bytes. They are a foundation only: the desktop action, replacement transaction,
-legacy migration and release signing workflow are not wired yet. The production
-public key is embedded and tested to reject randomly generated test signatures.
-Do not describe this foundation as a completed updater.
+and legacy migration still require native end-to-end acceptance checks. The
+Windows action, independent recovery helper, installer file manifest, signing
+workflow and trusted release verification are implemented but not yet fully
+verified together. The public key is embedded and rejects random test signatures.
+Do not describe the updater as complete before the native acceptance checks pass.
 
 ## Upstream references
 

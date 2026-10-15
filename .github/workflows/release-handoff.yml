@@ -37,6 +37,8 @@ jobs:
         with:
           ref: master
           persist-credentials: false
+      - name: Install release verification dependencies
+        run: python -m pip install --disable-pip-version-check -r tests/release/requirements.txt
       - name: Discover verified source runs and complete approved publication
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

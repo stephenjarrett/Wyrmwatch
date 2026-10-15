@@ -14,9 +14,12 @@ parser = argparse.ArgumentParser()
 parser.add_argument('runtime', choices=('win-x64', 'linux-x64'))
 parser.add_argument('--output-root', type=Path, default=Path('dist'))
 parser.add_argument('--inno-compiler', type=Path)
+parser.add_argument('--test-fault-after-files', action='store_true', help='Disposable CI fixture only; never a release package')
 args = parser.parse_args()
 root = Path(__file__).resolve().parents[1]
 output = (root / args.output_root).resolve()
+if args.test_fault_after_files and (os.environ.get('CI') != 'true' or args.runtime != 'win-x64' or output == root / 'dist'):
+    raise RuntimeError('Fault installers require a separate output folder on a disposable CI host')
 build = output / args.runtime
 version = ET.parse(root / 'Directory.Build.props').findtext('./PropertyGroup/Version')
 if not version or any(c not in '0123456789.' for c in version):
@@ -44,7 +47,7 @@ if args.runtime == 'win-x64':
         obsolete = Path(temporary) / 'obsolete-files.iss'
         obsolete.write_text('[InstallDelete]\n' + ''.join(
             'Type: files; Name: "{app}\\' + name.replace('/', '\\') + '"\n' for name in retired), encoding='utf-8')
-        subprocess.run([str(compiler), f'/DAppVersion={version}', f'/DBuildDirectory={build}',
+        subprocess.run([str(compiler)] + (['/DFaultAfterFiles'] if args.test_fault_after_files else []) + [f'/DAppVersion={version}', f'/DBuildDirectory={build}',
                         f'/DPackageDirectory={output}', f'/DRetiredFilesInclude={obsolete}',
                         str(root / 'scripts/windows-installer.iss')], check=True)
     package = output / f'Wyrmwatch-{version}-win-x64-setup.exe'
