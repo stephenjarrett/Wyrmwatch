@@ -65,7 +65,10 @@ function Assert-Data {
     $preferences=Get-Content (Join-Path $workspace settings.json) -Raw | ConvertFrom-Json
     if(@($preferences.Servers).Count -ne 1 -or $preferences.Servers[0].Id -ne 'upgrade-fixture' -or $preferences.FollowLog){throw 'Update lost saved connection or Follow log choice'}
     if((Get-FileHash -LiteralPath $world).Hash -cne $worldHash -or (Get-FileHash -LiteralPath $configuration).Hash -cne $configHash){throw 'Upgrade changed isolated game data'}
-    if($script:gameId -and (-not (Get-Process -Id $script:gameId -ErrorAction SilentlyContinue) -or (Test-Path (Join-Path $game shutdown.requested)))){throw 'App update stopped the synthetic game'}
+    if($script:gameId) {
+        $running=Get-Process -Id $script:gameId -ErrorAction SilentlyContinue
+        if(-not $running -or $running.Path -ne $script:gameExecutable -or $running.StartTime.ToUniversalTime().Ticks -ne $script:gameStartTicks -or (Test-Path (Join-Path $game shutdown.requested))){throw 'App update did not preserve the exact synthetic game process'}
+    }
     if($script:credentialHash -and (Get-FileHash -LiteralPath (Join-Path $workspace server-admin-passwords.json)).Hash -cne $script:credentialHash){throw 'App update changed the retained credential file'}
 }
 function Assert-Credential {
@@ -149,7 +152,7 @@ $configHash=(Get-FileHash -LiteralPath $configuration).Hash
 $deadline=(Get-Date).AddSeconds(20)
 do {
     $synthetic=@(Get-Process RSDragonwildsServer -ErrorAction SilentlyContinue | Where-Object {$_.Path -eq (Join-Path $game RSDragonwildsServer.exe)})
-    if($synthetic.Count -eq 1){$script:gameId=$synthetic[0].Id;break}
+    if($synthetic.Count -eq 1){$script:gameId=$synthetic[0].Id;$script:gameExecutable=$synthetic[0].Path;$script:gameStartTicks=$synthetic[0].StartTime.ToUniversalTime().Ticks;break}
     Start-Sleep -Milliseconds 200
 } while((Get-Date) -lt $deadline)
 if(-not $script:gameId){throw 'Synthetic server did not start'}

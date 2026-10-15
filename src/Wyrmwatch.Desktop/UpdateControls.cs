@@ -200,7 +200,7 @@ public partial class MainWindow
             {
                 var root = AppContext.BaseDirectory;
                 if (!File.Exists(Path.Combine(root, "unins000.exe"))) throw new IOException("Install this release once with its Windows setup program to enable updates at a stable shortcut path.");
-                if (Path.GetFullPath(Program.DataDirectory).StartsWith(Path.TrimEndingDirectorySeparator(root) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+                if (SafePaths.Same(Program.DataDirectory, root) || SafePaths.Within(Program.DataDirectory, root) || SafePaths.Within(root, Program.DataDirectory))
                     throw new IOException("The workspace must be outside the application installation before updating.");
                 foreach (var profile in settings.Servers.Concat(settings.DisconnectedServers))
                     foreach (var path in new[] { profile.InstallPath, profile.SavedPath, profile.BackupPath })
