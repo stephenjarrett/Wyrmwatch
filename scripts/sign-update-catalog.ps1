@@ -31,7 +31,7 @@ if($LASTEXITCODE -ne 0 -or (($verified -join "`n") -replace '\x1b\[[0-9;]*m','')
     throw 'Catalog signature does not verify with the committed public key; publication is blocked'
 }
 [IO.File]::WriteAllText($catalog+'.sig',$signature,[Text.Encoding]::ASCII)
-foreach($path in @($catalog,$catalog+'.sig')) {
+foreach($path in @($catalog,($catalog+'.sig'))) {
     $hash=(Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
     [IO.File]::WriteAllText($path+'.sha256',"$hash  $([IO.Path]::GetFileName($path))`n",[Text.Encoding]::ASCII)
 }
