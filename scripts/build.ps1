@@ -132,6 +132,14 @@ try {
         '',
         'Third-party components retain their own licenses. THIRD-PARTY-NOTICES.md lists their versions, notices, and upstream sources.'
     ) | Set-Content -LiteralPath "$output/SOURCE.md" -Encoding utf8
+    if($Runtime -eq 'win-x64') {
+        $owned=[ordered]@{}
+        foreach($file in Get-ChildItem -LiteralPath $output -Recurse -File | Sort-Object FullName) {
+            $relative=[IO.Path]::GetRelativePath($output,$file.FullName).Replace('\','/')
+            $owned[$relative]=(Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash
+        }
+        $owned | ConvertTo-Json | Set-Content -LiteralPath "$output/app-files.json" -Encoding utf8
+    }
     $bytes=(Get-ChildItem -LiteralPath $output -Recurse -File | Measure-Object Length -Sum).Sum
     Write-Host "Application payload: $([math]::Round($bytes/1MB,1)) MiB; one runtime, whole retained assemblies, no debugging-symbol files"
     $resolvedStaging=(Resolve-Path -LiteralPath $staging).Path

@@ -6,6 +6,9 @@ if(Get-Service Wyrmwatch -ErrorAction SilentlyContinue){throw 'An existing servi
 $app=(Resolve-Path -LiteralPath $ApplicationDirectory).Path
 $fixture=(Resolve-Path -LiteralPath $FixtureDirectory).Path
 $testRoot=Join-Path ([IO.Path]::GetTempPath()) ('wyrmwatch-service-'+[Guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $testRoot -Force | Out-Null
+[Reflection.Assembly]::LoadFrom((Join-Path $app Wyrmwatch.Platform.dll)) | Out-Null
+$testRoot=[Wyrmwatch.Platform.WindowsPhysicalPath]::ExistingDirectory($testRoot)
 $workspace=Join-Path $testRoot 'workspace'
 $install=Join-Path $testRoot 'fixture'
 $saved=Join-Path $testRoot 'Saved'
@@ -45,7 +48,16 @@ function Endpoint {
     throw 'Service did not expose a working endpoint'
 }
 function Action([string]$name) {
-    Invoke-RestMethod -Method Post -Uri ($script:endpoint.Address+'/api/servers/service/actions') -Headers $script:headers -ContentType 'application/json' -Body (@{action=$name} | ConvertTo-Json)
+    Write-Host "Synthetic service fixture action: $name"
+    try {
+        Invoke-RestMethod -Method Post -Uri ($script:endpoint.Address+'/api/servers/service/actions') -Headers $script:headers -ContentType 'application/json' -Body (@{action=$name} | ConvertTo-Json)
+    } catch {
+        $failure=Join-Path $install startup.failure
+        if(Test-Path -LiteralPath $failure){Write-Host ('Synthetic startup diagnostic: '+(Get-Content -LiteralPath $failure -Raw))}
+        $present=@(Get-Process RSDragonwildsServer -ErrorAction SilentlyContinue | Where-Object {$_.Path -eq (Join-Path $install RSDragonwildsServer.exe)})
+        Write-Host "Synthetic fixture processes still present: $($present.Count)"
+        throw
+    }
 }
 function Wait-Fixture {
     $deadline=(Get-Date).AddSeconds(15)
@@ -70,8 +82,36 @@ try {
     if($state.servers[0].state.processes[0].id -ne $identity.id){throw 'Restart lost fixture ownership'}
     $null=Action 'stop'
     if((Get-Content -LiteralPath (Join-Path $install 'shutdown.requested') -Raw) -ne 'graceful'){throw 'Service failed graceful fixture shutdown'}
+    # Synthetic credentials only: verify the real LocalService DPAPI boundary,
+    # authenticated owner read, service restart, and reapplication before start.
+    $configuration=Join-Path $saved 'Config/WindowsServer/DedicatedServer.ini'
+    $rewritten=(Get-Content -LiteralPath $configuration -Raw) -replace '(?m)^AdminPassword=.*\r?\n',''
+    Set-Content -LiteralPath $configuration -Value $rewritten -NoNewline -Encoding utf8
+    $rewrittenHash=(Get-FileHash -LiteralPath $configuration).Hash
+    Add-Type -AssemblyName System.Security.Cryptography.ProtectedData
+    $encrypted=(Get-Content -LiteralPath (Join-Path $workspace server-admin-passwords.json) -Raw | ConvertFrom-Json).service
+    $unreadable=$false
+    try {
+        $unexpected=[Security.Cryptography.ProtectedData]::Unprotect([Convert]::FromBase64String($encrypted),$null,[Security.Cryptography.DataProtectionScope]::CurrentUser)
+        $unexpected=$null
+    } catch {
+        if($_.Exception.InnerException -is [Security.Cryptography.CryptographicException]){$unreadable=$true}else{throw 'Synthetic DPAPI boundary probe failed unexpectedly'}
+    }
+    $encrypted=$null
+    if(-not $unreadable){throw 'Service-owned synthetic credential was readable under the unrelated runner account'}
+    foreach($attempt in 1..2) {
+        if($attempt -eq 2){Restart-Service Wyrmwatch;$null=Endpoint}
+        $response=Invoke-WebRequest ($script:endpoint.Address+'/admin/servers/service/configuration') -Headers $script:headers
+        $values=$response.Content | ConvertFrom-Json
+        if($values.AdminPassword -cne 'fixture-only' -or $response.Headers['Cache-Control'] -notcontains 'no-store'){throw 'Authenticated service-owner credential read failed'}
+        $values=$null;$response=$null
+        if((Get-FileHash -LiteralPath $configuration).Hash -cne $rewrittenHash){throw 'Reading retained service configuration changed the INI'}
+    }
+    $null=Action 'start'
+    if((Get-Content -LiteralPath $configuration -Raw) -notmatch '(?m)^AdminPassword=fixture-only\r?$'){throw 'Service did not restore its own retained synthetic credential before start'}
+    $null=Action 'stop'
     if((Get-Content -LiteralPath (Join-Path $saved 'SaveGames/world.sav') -Raw).Trim() -ne 'service-test-world'){throw 'Service modified the world'}
-    Write-Host 'PASS: low-privilege Windows service start, fixture control, stop preservation, restart ownership, graceful shutdown, and save preservation.'
+    Write-Host 'PASS: low-privilege Windows service, fixture preservation, restart ownership, DPAPI account isolation, authenticated no-store credential recovery, reapplication before start, and unchanged world.'
 } finally {
     Stop-Service Wyrmwatch -ErrorAction SilentlyContinue
     & sc.exe delete Wyrmwatch | Out-Null

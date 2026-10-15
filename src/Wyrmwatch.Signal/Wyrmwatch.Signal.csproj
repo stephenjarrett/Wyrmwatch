@@ -1,4 +1,16 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework><AssemblyName>Wyrmwatch.Signal</AssemblyName></PropertyGroup>
   <ItemGroup><ProjectReference Include="../Wyrmwatch.Platform/Wyrmwatch.Platform.csproj" /></ItemGroup>
+  <PropertyGroup>
+    <JobKeeperCompiler>$(WINDIR)\Microsoft.NET\Framework64\v4.0.30319\csc.exe</JobKeeperCompiler>
+    <JobKeeperSource>$(MSBuildThisFileDirectory)..\..\scripts\windows-jobkeeper.cs</JobKeeperSource>
+  </PropertyGroup>
+  <Target Name="BuildDetachedJobKeeper" AfterTargets="Build" Condition="'$(OS)' == 'Windows_NT'"
+          Inputs="$(JobKeeperSource)" Outputs="$(TargetDir)Wyrmwatch.Signal.JobKeeper.exe">
+    <Error Condition="!Exists('$(JobKeeperCompiler)')" Text="The supported Windows .NET Framework compiler is required for the detached job helper." />
+    <Exec Command="&quot;$(JobKeeperCompiler)&quot; /nologo /optimize+ /debug- /target:winexe /platform:x64 /out:&quot;$(TargetDir)Wyrmwatch.Signal.JobKeeper.exe&quot; &quot;$(JobKeeperSource)&quot;" />
+  </Target>
+  <Target Name="PublishDetachedJobKeeper" AfterTargets="Publish" Condition="'$(RuntimeIdentifier)' == 'win-x64'">
+    <Copy SourceFiles="$(TargetDir)Wyrmwatch.Signal.JobKeeper.exe" DestinationFolder="$(PublishDir)" />
+  </Target>
 </Project>

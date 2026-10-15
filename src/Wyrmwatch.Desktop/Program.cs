@@ -11,10 +11,12 @@ internal static class Program
     public static bool HeadlessTest;
     public static bool ApplyStartup;
     public static string? PreviousExecutable;
+    internal static string? UpdateOutcomeMessage;
     private static Mutex? singleInstance;
     [STAThread]
     public static void Main(string[] args)
     {
+        if (InstallerLifecycle.TryRun(args, out var installerResult)) { Environment.ExitCode = installerResult; return; }
         var parentIndex = Array.IndexOf(args, "--wait-for-parent");
         if (parentIndex >= 0 && parentIndex + 2 < args.Length && int.TryParse(args[parentIndex + 1], out var parentId))
         {
@@ -28,6 +30,15 @@ internal static class Program
         var index = Array.IndexOf(args, "--data-dir");
         if (index >= 0 && index + 1 < args.Length) DataDirectory = Path.GetFullPath(args[index + 1]);
         if (Demo && index < 0) DataDirectory = Path.Combine(Path.GetTempPath(), "Wyrmwatch-demo");
+        Wyrmwatch.Core.SafePaths.NoLinks(DataDirectory);
+        Directory.CreateDirectory(DataDirectory);
+        DataDirectory = Wyrmwatch.Platform.WindowsPhysicalPath.ExistingDirectory(DataDirectory);
+        if (OperatingSystem.IsWindows())
+        {
+            var outcomeIndex = Array.IndexOf(args, "--installation-result");
+            if (outcomeIndex >= 0 && outcomeIndex + 1 < args.Length) UpdateOutcomeMessage = InstallerLifecycle.Outcome(args[outcomeIndex + 1], AppContext.BaseDirectory);
+            _ = Task.Run(() => InstallerLifecycle.CleanupCompleted(AppContext.BaseDirectory));
+        }
         var hash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(DataDirectory.ToUpperInvariant())))[..20];
         singleInstance = new Mutex(true, "Wyrmwatch-" + hash, out var created);
         if (!created) return;

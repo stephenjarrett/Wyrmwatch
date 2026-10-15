@@ -64,6 +64,7 @@ public partial class MainWindow : Window
             Opened += async (_, _) => { try { if (Program.Minimized) WindowState = WindowState.Minimized; if (!Program.HeadlessTest) { await LoadLanguagesAsync(settings.Language); await PollLoopAsync(); } } catch (OperationCanceledException) { } };
             Closing += OnClosing;
             Closed += (_, _) => { closing.Cancel(); tray?.Dispose(); };
+            if (Program.UpdateOutcomeMessage is { } outcome) model.Notice = outcome;
         }
         catch (Exception e)
         {
