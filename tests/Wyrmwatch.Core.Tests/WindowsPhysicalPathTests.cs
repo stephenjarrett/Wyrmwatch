@@ -1,4 +1,5 @@
 using Wyrmwatch.Platform;
+using Wyrmwatch.Core;
 
 namespace Wyrmwatch.Core.Tests;
 
@@ -22,7 +23,12 @@ public class WindowsPhysicalPathTests
             Assert.True(Path.IsPathFullyQualified(physical));
             Assert.True(Directory.Exists(physical));
             Assert.DoesNotContain(@"\\?\", physical);
+            var profile = new ServerProfile { Id = "physical-workspace-fixture" };
+            new AdminPasswordStore(new(directory)).Remember(profile, "physical-fixture-only");
+            Assert.Equal("physical-fixture-only", new AdminPasswordStore(new(physical)).Read(profile));
+            Assert.Equal(File.ReadAllBytes(Path.Combine(directory, "server-admin-passwords.json")),
+                File.ReadAllBytes(Path.Combine(physical, "server-admin-passwords.json")));
         }
-        finally { Directory.Delete(directory); }
+        finally { Directory.Delete(directory, true); }
     }
 }

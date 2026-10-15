@@ -27,6 +27,8 @@ internal static class FixtureProgram
             try
             {
                 var window = (MainWindow)lifetime.MainWindow!;
+                if (window.FindControl<TextBox>("AdminPassword")?.Text != "disposable-fixture-only")
+                    throw new InvalidOperationException("The native fixture did not display its retained synthetic credential.");
                 window.AppUpdateClientFactory = () => new AppUpdates(() => new HttpClient(new FixtureHttp(fixture)), installedWindows: true);
                 await window.CheckManagerUpdateAsync();
                 await window.DownloadManagerUpdateAsync();

@@ -63,6 +63,12 @@ function Assert-Data {
     if(@($preferences.Servers).Count -ne 1 -or $preferences.Servers[0].Id -ne 'upgrade-fixture' -or $preferences.FollowLog){throw 'Update lost saved connection or Follow log choice'}
     if((Get-FileHash -LiteralPath $world).Hash -cne $worldHash -or (Get-FileHash -LiteralPath $configuration).Hash -cne $configHash){throw 'Upgrade changed isolated game data'}
     if($script:gameId -and (-not (Get-Process -Id $script:gameId -ErrorAction SilentlyContinue) -or (Test-Path (Join-Path $game shutdown.requested)))){throw 'App update stopped the synthetic game'}
+    if($script:credentialHash -and (Get-FileHash -LiteralPath (Join-Path $workspace server-admin-passwords.json)).Hash -cne $script:credentialHash){throw 'App update changed the retained credential file'}
+}
+function Assert-Credential {
+    $retained=Request Get '/admin/servers/upgrade-fixture/configuration'
+    if($retained.AdminPassword -cne 'disposable-fixture-only'){throw 'Updated agent could not recover its retained synthetic credential'}
+    $retained=$null
 }
 function Assert-Shortcuts([string]$Version) {
     $shell=New-Object -ComObject WScript.Shell
@@ -103,6 +109,14 @@ if($LASTEXITCODE -ne 0 -or (Get-FileHash -LiteralPath $legacy).Hash -ine 'de3e15
 Install $legacy
 $legacyUi=Start-App
 Wait-Agent '0.2.7' | Out-Null
+# Explicitly save through the released agent before migration, then model an INI
+# rewrite. Only synthetic credentials are ever read by this fixture.
+$values=@{OwnerId='fixture-owner';ServerName='Upgrade fixture';DefaultWorldName='Fixture world';AdminPassword='disposable-fixture-only';WorldPassword='';Port='17789'}
+Request Post '/api/servers/upgrade-fixture/actions' @{Action='configuration';Values=$values} | Out-Null
+$script:credentialHash=(Get-FileHash -LiteralPath (Join-Path $workspace server-admin-passwords.json)).Hash
+$rewritten=(Get-Content -LiteralPath $configuration -Raw) -replace '(?m)^AdminPassword=.*\r?\n',''
+Set-Content -LiteralPath $configuration -Value $rewritten -NoNewline -Encoding utf8
+$configHash=(Get-FileHash -LiteralPath $configuration).Hash
 Close-App
 # Old automatic updates left the desktop link on a portable workspace copy.
 $shell=New-Object -ComObject WScript.Shell
@@ -112,6 +126,7 @@ $link.TargetPath=Join-Path $workspace 'app-updates/0.2.7/Wyrmwatch.exe';$link.Ar
 [Runtime.InteropServices.Marshal]::FinalReleaseComObject($shell) | Out-Null
 Install $spec.Installer -Reopen
 Wait-Agent $spec.Current | Out-Null
+Assert-Credential
 Close-App
 Assert-Shortcuts $spec.Current
 Assert-Data
@@ -121,6 +136,13 @@ Write-Host 'PASS: legacy migration, automatic workspace reopen and both real sho
 $ui=Start-App
 Wait-Agent $spec.Current | Out-Null
 Request Post '/api/servers/upgrade-fixture/actions' @{Action='start'} | Out-Null
+if((Get-Content -LiteralPath $configuration -Raw) -notmatch '(?m)^AdminPassword=disposable-fixture-only\r?$'){throw 'Migrated manager did not reapply its retained synthetic password before start'}
+# Model a game-side rewrite during the run. Every update must preserve both this
+# rewritten INI and the independent DPAPI-protected retained value.
+$script:credentialHash=(Get-FileHash -LiteralPath (Join-Path $workspace server-admin-passwords.json)).Hash
+$rewritten=(Get-Content -LiteralPath $configuration -Raw) -replace '(?m)^AdminPassword=.*\r?\n',''
+Set-Content -LiteralPath $configuration -Value $rewritten -NoNewline -Encoding utf8
+$configHash=(Get-FileHash -LiteralPath $configuration).Hash
 $deadline=(Get-Date).AddSeconds(20)
 do {
     $synthetic=@(Get-Process RSDragonwildsServer -ErrorAction SilentlyContinue | Where-Object {$_.Path -eq (Join-Path $game RSDragonwildsServer.exe)})
@@ -140,6 +162,7 @@ foreach($mode in @('bad-digest','bad-signature')) {
 Write-Host 'Testing real download handler, installer file replacement and failure recovery.'
 $case=Run-Button failure
 Wait-Agent $spec.Current | Out-Null
+Assert-Credential
 if((Get-FileHash (Join-Path $app Wyrmwatch.dll)).Hash -cne $original){throw 'Failed native upgrade did not restore previous application'}
 # The installer lifecycle test separately asserts its post-copy marker. The
 # reopened app may already have cleaned up this completed recovery journal.
@@ -148,12 +171,17 @@ Close-App
 Write-Host 'Testing subsequent version update and automatic reopen.'
 $case=Run-Button success
 Wait-Agent $spec.Future | Out-Null
+Assert-Credential
 if((Get-FileHash (Join-Path $app Wyrmwatch.dll)).Hash -ceq $original){throw 'Subsequent update did not replace application version'}
 Assert-Data
 Close-App
 Assert-Shortcuts $spec.Future
 $ui=Start-App
 Wait-Agent $spec.Future | Out-Null
+Assert-Credential
+Request Post '/api/servers/upgrade-fixture/actions' @{Action='stop'} | Out-Null
+Request Post '/api/servers/upgrade-fixture/actions' @{Action='start'} | Out-Null
+if((Get-Content -LiteralPath $configuration -Raw) -notmatch '(?m)^AdminPassword=disposable-fixture-only\r?$'){throw 'Subsequent version did not reapply the retained synthetic password before start'}
 Request Post '/api/servers/upgrade-fixture/actions' @{Action='stop'} | Out-Null
 Close-App
 $uninstall=Start-Process (Join-Path $app unins000.exe) -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -WindowStyle Hidden -PassThru -Wait
