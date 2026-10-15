@@ -55,7 +55,10 @@ function Close-App {
 function Install([string]$Setup,[switch]$Reopen) {
     $arguments=@('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-',('/DIR="'+$app+'"'),'/GROUP="Wyrmwatch Update Fixture"','/TASKS=desktopicon',('/LOG="'+(Join-Path $fixture ('setup-'+[Guid]::NewGuid().ToString('N')+'.log'))+'"'))
     if($Reopen){$arguments+=('/UPDATEWORKSPACE="'+$workspace+'"')}
-    $process=Start-Process -FilePath $Setup -ArgumentList $arguments -WindowStyle Hidden -PassThru -Wait
+    # Start-Process -Wait also waits for descendant processes on Windows. Setup
+    # deliberately reopens a persistent UI/agent, so wait only for Setup itself.
+    $process=Start-Process -FilePath $Setup -ArgumentList $arguments -WindowStyle Hidden -PassThru
+    if(-not $process.WaitForExit(90000)){throw 'Owned fixture setup did not exit within its deadline'}
     if($process.ExitCode -ne 0){throw "Fixture setup exited with $($process.ExitCode)"}
 }
 function Assert-Data {

@@ -71,6 +71,7 @@ jobs:
           ./scripts/test-windows-service.ps1 -ApplicationDirectory dist/win-x64 -FixtureDirectory dist/service-fixture
       - name: Verify complete Windows app update flow
         if: runner.os == 'Windows'
+        timeout-minutes: 20
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
