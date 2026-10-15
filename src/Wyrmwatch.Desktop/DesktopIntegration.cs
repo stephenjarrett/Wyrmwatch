@@ -25,6 +25,7 @@ internal static class DesktopIntegration
                 target = (string)shortcut.GetType().InvokeMember("TargetPath", System.Reflection.BindingFlags.GetProperty, null, shortcut, null)!;
             }
             finally { if (shortcut is not null) System.Runtime.InteropServices.Marshal.FinalReleaseComObject(shortcut); System.Runtime.InteropServices.Marshal.FinalReleaseComObject(shell); }
+            if (!Path.IsPathFullyQualified(target)) continue;
             if (SafePaths.Same(target, current) || (Path.GetFileName(target).Equals("Wyrmwatch.exe", StringComparison.OrdinalIgnoreCase) && legacyRoots.Any(parent => SafePaths.Within(target, parent))))
                 RetargetShortcutCore(path, target, current, workspace);
         }
@@ -48,7 +49,7 @@ internal static class DesktopIntegration
             var type = link.GetType();
             var target = (string)type.InvokeMember("TargetPath", System.Reflection.BindingFlags.GetProperty, null, link, null)!;
             var installed = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "Wyrmwatch", "Wyrmwatch.exe");
-            if (!SafePaths.Same(target, previous) && !SafePaths.Same(target, installed)) return;
+            if (!Path.IsPathFullyQualified(target) || (!SafePaths.Same(target, previous) && !SafePaths.Same(target, installed))) return;
             type.InvokeMember("TargetPath", System.Reflection.BindingFlags.SetProperty, null, link, [current]);
             type.InvokeMember("WorkingDirectory", System.Reflection.BindingFlags.SetProperty, null, link, [Path.GetDirectoryName(current)!]);
             type.InvokeMember("IconLocation", System.Reflection.BindingFlags.SetProperty, null, link, [current + ",0"]);
@@ -62,6 +63,7 @@ internal static class DesktopIntegration
                 type.InvokeMember("Arguments", System.Reflection.BindingFlags.SetProperty, null, link, [Wyrmwatch.Platform.WindowsCommandLine.JoinArguments(arguments)]);
             }
             type.InvokeMember("Save", System.Reflection.BindingFlags.InvokeMethod, null, link, null);
+            SafePaths.NoLinks(path + ".bak");
             File.Replace(temp, path, path + ".bak");
         }
         finally

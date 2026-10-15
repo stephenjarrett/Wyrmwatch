@@ -56,7 +56,7 @@ internal static class InstallerLifecycle
             if (success)
             {
                 try { DesktopIntegration.UpdateInstalledShortcuts(snapshot.Root, context.Workspace, context.StartMenu); }
-                catch (Exception error) when (error is IOException or UnauthorizedAccessException or System.Runtime.InteropServices.COMException) { shortcutsUpdated = false; }
+                catch (Exception error) when (error is IOException or UnauthorizedAccessException or System.Runtime.InteropServices.COMException or System.Reflection.TargetInvocationException) { shortcutsUpdated = false; }
             }
             using var current = Process.GetCurrentProcess();
             var receipt = new InstallerReceipt(success ? "installed" : "restored", snapshot.Version, current.Id, ProcessLifetime.Token(current), shortcutsUpdated);

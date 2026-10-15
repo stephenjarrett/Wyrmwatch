@@ -243,9 +243,18 @@ public partial class MainWindow
     private static async Task VerifyInstallerAsync(PreparedUpdate update, AppRelease release, CancellationToken token)
     {
         var version = typeof(MainWindow).Assembly.GetName().Version!;
-        var catalog = SignedUpdateCatalog.Verify(await File.ReadAllBytesAsync(update.Catalog!, token),
-            (await File.ReadAllTextAsync(update.Signature!, token)).Trim(), new Version(version.Major, version.Minor, version.Build));
+        var catalog = SignedUpdateCatalog.Verify(await ReadBoundedMetadataAsync(update.Catalog!, SignedUpdateCatalog.CatalogLimit, token),
+            System.Text.Encoding.UTF8.GetString(await ReadBoundedMetadataAsync(update.Signature!, 1024, token)).Trim(), new Version(version.Major, version.Minor, version.Build));
         await SignedUpdateCatalog.VerifyPackageAsync(update.Executable,
             catalog.Require($"Wyrmwatch-{release.Version}-win-x64-setup.exe", release), token);
+    }
+    private static async Task<byte[]> ReadBoundedMetadataAsync(string path, int limit, CancellationToken token)
+    {
+        SafePaths.NoLinks(path);
+        await using var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, FileOptions.Asynchronous);
+        if (file.Length <= 0 || file.Length > limit) throw new IOException("The signed update metadata has an unsupported size.");
+        var content = new byte[(int)file.Length];
+        await file.ReadExactlyAsync(content, token);
+        return content;
     }
 }
