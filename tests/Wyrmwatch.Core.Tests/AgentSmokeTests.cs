@@ -3,16 +3,17 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using Wyrmwatch.Core;
+using Xunit.Abstractions;
 
 namespace Wyrmwatch.Core.Tests;
 
 [Collection(NativeProcessCollection.Name)]
-public class AgentSmokeTests
+public class AgentSmokeTests(ITestOutputHelper output)
 {
     [Fact]
     public async Task LocalApiRequiresHostSecretAndRejectsUntrustedOrigins()
     {
-        await using var agent = await AgentFixture.StartAsync();
+        await using var agent = await AgentFixture.StartAsync(output);
         using var anonymous = new HttpClient { BaseAddress = agent.Admin.BaseAddress };
         Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.GetAsync("api/status")).StatusCode);
         using var wrongKey = agent.Client(AccessPolicy.NewSecret());
@@ -27,7 +28,7 @@ public class AgentSmokeTests
     [Fact]
     public async Task LegacyRemoteSettingsAreIgnoredAndDisconnectPreservesFiles()
     {
-        await using var agent = await AgentFixture.StartAsync(new { Enabled = true, Port = 8843 });
+        await using var agent = await AgentFixture.StartAsync(output, new { Enabled = true, Port = 8843 });
         Assert.Equal(HttpStatusCode.NotFound, (await agent.Admin.GetAsync("admin/remote")).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await agent.Admin.GetAsync("admin/access")).StatusCode);
         Assert.Null((await agent.Admin.GetFromJsonAsync<AgentStatus>("api/status"))!.RemoteAddress);
@@ -44,13 +45,19 @@ public class AgentSmokeTests
     [Fact]
     public async Task BackgroundModeSurvivesDesktopExitAndDisabledModeClosesWithoutChangingSaves()
     {
-        await using var agent = await AgentFixture.StartAsync(prepare: fixture =>
+        var agent = await AgentFixture.StartAsync(output, prepare: fixture =>
         {
             fixture.First = fixture.First with { AutoBackup = true };
             var store = new JsonStore(fixture.Root);
             store.Write("settings.json", new ManagerSettings { Servers = [fixture.First, fixture.Second] });
             store.Write("schedules.json", new Dictionary<string, ScheduleState> { [fixture.First.Id] = new(NextBackup: DateTimeOffset.UtcNow.AddSeconds(6)) });
         });
+        await AgentFixtureLifecycle.RunAsync(() => ExerciseBackgroundModeAsync(agent), agent.DisposeAsync, agent.ReportFailure);
+    }
+
+    private static async Task ExerciseBackgroundModeAsync(AgentFixture agent)
+    {
+        agent.Stage = "duplicate-start";
         using var second = agent.StartProcess();
         var secondOutput = second.StandardOutput.ReadToEndAsync();
         var secondError = second.StandardError.ReadToEndAsync();
@@ -60,8 +67,10 @@ public class AgentSmokeTests
         Assert.Equal(1, second.ExitCode);
         Assert.Contains("A background manager already owns this workspace", await secondError);
         Assert.DoesNotContain("Unhandled exception", await secondError);
+        agent.Stage = "enable-background";
         await SavePreferencesWhenIdleAsync(agent.Admin, new ManagerSettings { BackgroundMode = true });
         Assert.True((await agent.Admin.PostAsJsonAsync("admin/attach", new AgentParent(int.MaxValue, "missing"))).IsSuccessStatusCode);
+        agent.Stage = "await-backup";
         var backups = new BackupEngine();
         using (var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(25)))
             try
@@ -88,12 +97,17 @@ public class AgentSmokeTests
                 if (!status.Busy && next > DateTimeOffset.UtcNow) break;
                 await Task.Delay(100, completed.Token);
             }
+        agent.Stage = "restart";
         await agent.RestartAsync(); await Task.Delay(3500);
+        agent.Stage = "verify-persisted-deadline";
         Assert.Equal(next, (await agent.Admin.GetFromJsonAsync<AgentStatus>("api/status"))!.Servers.Single(s => s.Id == agent.First.Id).Schedule.NextBackup);
         Assert.Single(backups.List(agent.First));
         Assert.True((await agent.Admin.PostAsJsonAsync("admin/attach", new AgentParent(int.MaxValue, "missing"))).IsSuccessStatusCode);
+        agent.Stage = "disable-background";
         await SavePreferencesWhenIdleAsync(agent.Admin, new ManagerSettings { BackgroundMode = false });
+        agent.Stage = "await-parentless-exit";
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(12)); await agent.Process.WaitForExitAsync(timeout.Token);
+        agent.Stage = "assert-preservation";
         Assert.Equal(0, agent.Process.ExitCode);
         Assert.Equal("untouched", File.ReadAllText(agent.Sentinel));
         Assert.Equal(2, new JsonStore(agent.Root).Read("settings.json", () => new ManagerSettings()).Servers.Count);
@@ -102,7 +116,7 @@ public class AgentSmokeTests
     [Fact]
     public async Task LocalBackupAndRestoreRequireConfirmedNameAndPreserveOtherServer()
     {
-        await using var agent = await AgentFixture.StartAsync();
+        await using var agent = await AgentFixture.StartAsync(output);
         var otherWorld = Path.Combine(agent.Second.SavedPath, "SaveGames", "other.sav");
         Directory.CreateDirectory(Path.GetDirectoryName(otherWorld)!); File.WriteAllText(otherWorld, "other world");
         await EnsureSuccessWithBodyAsync(await agent.Admin.PostAsJsonAsync($"api/servers/{agent.First.Id}/actions", new ServerAction("backup")));
@@ -122,7 +136,7 @@ public class AgentSmokeTests
     [Fact]
     public async Task ImportEndpointIsOwnerOnlyAndDisablesAutomationWithoutChangingFiles()
     {
-        await using var agent = await AgentFixture.StartAsync();
+        await using var agent = await AgentFixture.StartAsync(output);
         using var f = new Fixture(); File.WriteAllText(f.Profile.Launcher, "fixture");
         File.WriteAllText(f.Profile.ConfigPath, File.ReadAllText(f.Profile.ConfigPath).Replace("Port=7777", "Port=7780"));
         var profile = ExistingServerImport.Inspect(f.Profile.Launcher, f.Profile.SavedPath, f.Profile.BackupPath);
@@ -155,7 +169,7 @@ public class AgentSmokeTests
                 $"{response.RequestMessage?.RequestUri}: HTTP {(int)response.StatusCode} {response.StatusCode}; {await response.Content.ReadAsStringAsync()}");
     }
 
-    private sealed class AgentFixture : IAsyncDisposable
+    private sealed class AgentFixture(ITestOutputHelper output) : IAsyncDisposable
     {
         public string Root { get; } = Path.Combine(Path.GetTempPath(), "wyrmwatch-agent-test-" + Guid.NewGuid().ToString("N"));
         public ServerProfile First { get; set; } = null!;
@@ -163,6 +177,13 @@ public class AgentSmokeTests
         public string Sentinel => Path.Combine(First.SavedPath, "SaveGames", "sentinel.sav");
         public Process Process { get; private set; } = null!;
         public HttpClient Admin { get; private set; } = null!;
+        public string Stage { get; set; } = "startup";
+        private readonly List<(int Id, string? Token)> spawned = [];
+        public void ReportFailure(string phase, Exception error)
+        {
+            try { output.WriteLine(AgentFixtureLifecycle.FailureRecord(Stage, phase, error, Root, spawned)); }
+            catch (Exception) { } // Diagnostics cannot replace the original failure.
+        }
         public HttpClient Client(string secret)
         {
             var client = new HttpClient { BaseAddress = Admin.BaseAddress, Timeout = TimeSpan.FromSeconds(15) };
@@ -176,11 +197,16 @@ public class AgentSmokeTests
             start.ArgumentList.Add(Path.Combine(AppContext.BaseDirectory, "agent", "Wyrmwatch.Agent.dll"));
             using var owner = System.Diagnostics.Process.GetCurrentProcess();
             foreach (var argument in new[] { "--workspace", Root, "--parent", owner.Id.ToString(), ProcessLifetime.Token(owner) }) start.ArgumentList.Add(argument);
-            return System.Diagnostics.Process.Start(start)!;
+            var process = System.Diagnostics.Process.Start(start)!;
+            string? token = null;
+            try { token = ProcessLifetime.Token(process); }
+            catch (Exception error) when (error is IOException or InvalidOperationException or System.ComponentModel.Win32Exception or UnauthorizedAccessException) { }
+            spawned.Add((process.Id, token));
+            return process;
         }
-        public static async Task<AgentFixture> StartAsync(object? remote = null, Action<AgentFixture>? prepare = null)
+        public static async Task<AgentFixture> StartAsync(ITestOutputHelper output, object? remote = null, Action<AgentFixture>? prepare = null)
         {
-            var fixture = new AgentFixture(); Directory.CreateDirectory(fixture.Root);
+            var fixture = new AgentFixture(output); Directory.CreateDirectory(fixture.Root);
             fixture.First = new() { Id = "first", Name = "First", InstallPath = Path.Combine(fixture.Root, "first"), BackupPath = Path.Combine(fixture.Root, "backups-first") };
             fixture.Second = new() { Id = "second", Name = "Second", InstallPath = Path.Combine(fixture.Root, "second"), BackupPath = Path.Combine(fixture.Root, "backups-second"), Port = 7778 };
             Directory.CreateDirectory(Path.GetDirectoryName(fixture.Sentinel)!); File.WriteAllText(fixture.Sentinel, "untouched");
@@ -201,7 +227,11 @@ public class AgentSmokeTests
                 fixture.Admin = new HttpClient { BaseAddress = new Uri(endpoint.Address), Timeout = TimeSpan.FromSeconds(15) };
                 fixture.Admin.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", endpoint.Secret); return fixture;
             }
-            catch { await fixture.DisposeAsync(); throw; }
+            catch (Exception primary)
+            {
+                await AgentFixtureLifecycle.RunAsync(() => Task.FromException(primary), fixture.DisposeAsync, fixture.ReportFailure);
+                throw;
+            }
         }
         public async Task RestartAsync()
         {
@@ -229,15 +259,19 @@ public class AgentSmokeTests
         }
         public async ValueTask DisposeAsync()
         {
-            if (Process is not null && !Process.HasExited)
+            try
             {
-                if (Admin is not null)
-                    for (var i = 0; i < 20 && !Process.HasExited; i++) { try { using var response = await Admin.PostAsync("admin/shutdown", null); if (response.IsSuccessStatusCode) break; } catch (Exception error) when (error is HttpRequestException or ObjectDisposedException) { break; } await Task.Delay(100); }
-                if (!Process.WaitForExit(5000)) Process.Kill(); // Only the disposable agent started by this fixture.
-                await Process.WaitForExitAsync();
+                if (Process is not null && !Process.HasExited)
+                {
+                    if (Admin is not null)
+                        for (var i = 0; i < 20 && !Process.HasExited; i++) { try { using var response = await Admin.PostAsync("admin/shutdown", null); if (response.IsSuccessStatusCode) break; } catch (Exception error) when (error is HttpRequestException or ObjectDisposedException) { break; } await Task.Delay(100); }
+                    if (!Process.WaitForExit(5000)) Process.Kill(); // Only the disposable agent started by this fixture.
+                    await Process.WaitForExitAsync();
+                }
+                await AgentFixtureLifecycle.DeleteOwnedRootAsync(Root, report: ReportFailure);
             }
-            Process?.Dispose(); Admin?.Dispose();
-            if (SafePaths.Within(Root, Path.GetTempPath()) && Path.GetFileName(Root).StartsWith("wyrmwatch-agent-test-", StringComparison.Ordinal) && Directory.Exists(Root)) Directory.Delete(Root, true);
+            catch (Exception error) { ReportFailure("dispose", error); throw; }
+            finally { Process?.Dispose(); Admin?.Dispose(); }
         }
     }
 }
