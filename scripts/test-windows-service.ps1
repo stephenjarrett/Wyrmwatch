@@ -6,6 +6,9 @@ if(Get-Service Wyrmwatch -ErrorAction SilentlyContinue){throw 'An existing servi
 $app=(Resolve-Path -LiteralPath $ApplicationDirectory).Path
 $fixture=(Resolve-Path -LiteralPath $FixtureDirectory).Path
 $testRoot=Join-Path ([IO.Path]::GetTempPath()) ('wyrmwatch-service-'+[Guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $testRoot -Force | Out-Null
+[Reflection.Assembly]::LoadFrom((Join-Path $app Wyrmwatch.Platform.dll)) | Out-Null
+$testRoot=[Wyrmwatch.Platform.WindowsPhysicalPath]::ExistingDirectory($testRoot)
 $workspace=Join-Path $testRoot 'workspace'
 $install=Join-Path $testRoot 'fixture'
 $saved=Join-Path $testRoot 'Saved'
@@ -45,7 +48,16 @@ function Endpoint {
     throw 'Service did not expose a working endpoint'
 }
 function Action([string]$name) {
-    Invoke-RestMethod -Method Post -Uri ($script:endpoint.Address+'/api/servers/service/actions') -Headers $script:headers -ContentType 'application/json' -Body (@{action=$name} | ConvertTo-Json)
+    Write-Host "Synthetic service fixture action: $name"
+    try {
+        Invoke-RestMethod -Method Post -Uri ($script:endpoint.Address+'/api/servers/service/actions') -Headers $script:headers -ContentType 'application/json' -Body (@{action=$name} | ConvertTo-Json)
+    } catch {
+        $failure=Join-Path $install startup.failure
+        if(Test-Path -LiteralPath $failure){Write-Host ('Synthetic startup diagnostic: '+(Get-Content -LiteralPath $failure -Raw))}
+        $present=@(Get-Process RSDragonwildsServer -ErrorAction SilentlyContinue | Where-Object {$_.Path -eq (Join-Path $install RSDragonwildsServer.exe)})
+        Write-Host "Synthetic fixture processes still present: $($present.Count)"
+        throw
+    }
 }
 function Wait-Fixture {
     $deadline=(Get-Date).AddSeconds(15)

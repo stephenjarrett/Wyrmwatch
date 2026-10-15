@@ -27,7 +27,18 @@ if (OperatingSystem.IsWindows())
 if (OperatingSystem.IsLinux() && NativeSignals.signal(2, IntPtr.Zero) == new IntPtr(-1)) throw new IOException("Could not reset the disposable fixture's SIGINT disposition.");
 using var signal = OperatingSystem.IsLinux() ? PosixSignalRegistration.Create(PosixSignal.SIGINT, context => { context.Cancel = true; Stop(); }) : null;
 var port = int.Parse(args.Single(arg => arg.StartsWith("-Port=", StringComparison.Ordinal))[6..]);
-using var socket = new UdpClient(new IPEndPoint(IPAddress.Loopback, port));
+UdpClient BindFixtureSocket()
+{
+    try { return new UdpClient(new IPEndPoint(IPAddress.Loopback, port)); }
+    catch (SocketException error)
+    {
+        // Synthetic test processes only; record a category, never arguments or
+        // configuration. CI can distinguish port failure from path inspection.
+        File.WriteAllText(Path.Combine(AppContext.BaseDirectory, "startup.failure"), "Socket:" + error.SocketErrorCode);
+        throw;
+    }
+}
+using var socket = BindFixtureSocket();
 File.WriteAllText(Path.Combine(AppContext.BaseDirectory, "server.ready"), "ready");
 if (graphical) FixtureWindow.Run(Stop);
 else stopped.Wait(TimeSpan.FromMinutes(2));
