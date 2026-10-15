@@ -44,7 +44,9 @@ public partial class MainWindow
             : checkingApp ? "Checking the official release."
             : downloadingApp && appDownloadCancellation?.IsCancellationRequested == true ? "Cancellation requested. Wait for the download or verification to stop before trying again."
             : downloadingApp ? "Downloading and verifying the update. Wyrmwatch will restart when it is ready."
-            : appServiceHandoffRequired ? "Stop the service when idle, update its registered application path to the verified version, and restart it before opening the new desktop app."
+            : appServiceHandoffRequired ? preparedUpdate?.Installer == true
+                ? "Stop the service when idle, run the verified installer at the existing installation location, then restart the service and open Wyrmwatch."
+                : "Stop the service when idle, update its registered application path to the verified version, and restart it before opening the new desktop app."
             : preparedUpdate is not null ? $"Wyrmwatch {preparedUpdate.Version} is verified. Retry the app restart when the manager is idle."
             : appRelease is not null ? "Download and update will verify the package and restart Wyrmwatch. Your game server keeps running."
             : "Check for an app update first.";
@@ -180,7 +182,9 @@ public partial class MainWindow
             {
                 appServiceHandoffRequired = true;
                 SetAppUpdateActivity("The verified app is staged. The installed service needs a manual handoff.");
-                model.Notice = $"The update is staged at {preparedUpdate.Directory}. Stop the service when idle, update its registered application path, and restart it before opening the new desktop app.";
+                model.Notice = preparedUpdate.Installer
+                    ? $"The verified installer is staged at {preparedUpdate.Executable}. Stop the Wyrmwatch service when idle, run this installer at its existing installation location, then restart the service and open Wyrmwatch with the same workspace."
+                    : $"The update is staged at {preparedUpdate.Directory}. Stop the service when idle, update its registered application path, and restart it before opening the new desktop app.";
                 return;
             }
             if (service.Busy) throw new IOException("The manager is completing a server operation. The update is verified; use Restart to update when that operation finishes.");

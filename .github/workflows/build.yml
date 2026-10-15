@@ -50,21 +50,9 @@ jobs:
           python scripts/package.py ${{ matrix.runtime }}
           python scripts/package-installers.py ${{ matrix.runtime }}
       - name: Install update signing tool
-        if: runner.os == 'Windows' && ((github.ref == 'refs/heads/master' && github.event_name != 'pull_request') || (github.ref == 'refs/heads/sjarrett/stable-app-updates' && github.event_name == 'push' && github.actor == 'stephenjarrett'))
+        if: runner.os == 'Windows' && github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
         shell: pwsh
         run: dotnet tool install NetSparkleUpdater.Tools.AppCastGenerator --version 2.9.0 --allow-roll-forward --tool-path "$env:RUNNER_TEMP/netsparkle"
-      - name: Verify dedicated signing key without publishing an update
-        if: runner.os == 'Windows' && github.ref == 'refs/heads/sjarrett/stable-app-updates' && github.event_name == 'push' && github.actor == 'stephenjarrett'
-        shell: pwsh
-        env:
-          SPARKLE_PRIVATE_KEY: ${{ secrets.WYRM_WATCH_UPDATE_SIGNING_KEY }}
-        run: ./scripts/test-update-signing.ps1 -Tool "$env:RUNNER_TEMP/netsparkle/netsparkle-generate-appcast.exe" -Output "$env:RUNNER_TEMP/signing-proof"
-      - uses: actions/upload-artifact@v4
-        if: runner.os == 'Windows' && github.ref == 'refs/heads/sjarrett/stable-app-updates' && github.event_name == 'push' && github.actor == 'stephenjarrett'
-        with:
-          name: update-signing-proof
-          path: ${{ runner.temp }}/signing-proof/
-          if-no-files-found: error
       - name: Verify Windows installer lifecycle
         if: runner.os == 'Windows'
         shell: pwsh
@@ -74,25 +62,6 @@ jobs:
           python scripts/package-installers.py win-x64 --output-root dist/fault --test-fault-after-files
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           ./scripts/test-windows-installer.ps1 -Installer (Get-ChildItem dist/*-setup.exe).FullName -FaultInstaller (Get-ChildItem dist/fault/*-setup.exe).FullName
-      - name: Collect installer diagnostics
-        if: runner.os == 'Windows' && failure()
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Path dist/installer-diagnostics -Force | Out-Null
-          foreach ($fixture in Get-ChildItem "$env:TEMP/wyrmwatch-installer-*" -Directory -ErrorAction SilentlyContinue) {
-            Copy-Item "$($fixture.FullName)/*.log" dist/installer-diagnostics/ -ErrorAction SilentlyContinue
-          }
-          foreach ($journal in Get-ChildItem "$env:TEMP/wyrmwatch-install-*" -Directory -ErrorAction SilentlyContinue) {
-            foreach ($name in @('failure.json','completed.json')) {
-              $path=Join-Path $journal.FullName $name
-              if(Test-Path -LiteralPath $path){Copy-Item -LiteralPath $path -Destination "dist/installer-diagnostics/$($journal.Name)-$name"}
-            }
-          }
-      - uses: actions/upload-artifact@v4
-        if: runner.os == 'Windows' && failure()
-        with:
-          name: installer-diagnostics
-          path: dist/installer-diagnostics/
       - name: Verify low-privilege Windows service
         if: runner.os == 'Windows'
         shell: pwsh
@@ -109,6 +78,31 @@ jobs:
           python scripts/build-update-fixture.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           ./scripts/test-windows-app-update.ps1
+      - name: Collect installer diagnostics
+        if: runner.os == 'Windows' && failure()
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path dist/installer-diagnostics -Force | Out-Null
+          foreach ($fixture in Get-ChildItem "$env:TEMP/wyrmwatch-installer-*" -Directory -ErrorAction SilentlyContinue) {
+            Copy-Item "$($fixture.FullName)/*.log" dist/installer-diagnostics/ -ErrorAction SilentlyContinue
+          }
+          foreach ($journal in Get-ChildItem "$env:TEMP/wyrmwatch-install-*" -Directory -ErrorAction SilentlyContinue) {
+            foreach ($name in @('failure.json','completed.json')) {
+              $path=Join-Path $journal.FullName $name
+              if(Test-Path -LiteralPath $path){Copy-Item -LiteralPath $path -Destination "dist/installer-diagnostics/$($journal.Name)-$name"}
+            }
+          }
+          foreach ($fixture in Get-ChildItem "$env:TEMP/wyrmwatch-update-fixture-*" -Directory -ErrorAction SilentlyContinue) {
+            Copy-Item "$($fixture.FullName)/*.log" dist/installer-diagnostics/ -ErrorAction SilentlyContinue
+            foreach ($result in Get-ChildItem "$($fixture.FullName)/*/driver-result.json","$($fixture.FullName)/*/driver-failure.txt" -File -ErrorAction SilentlyContinue) {
+              Copy-Item -LiteralPath $result.FullName -Destination "dist/installer-diagnostics/$($result.Directory.Name)-$($result.Name)"
+            }
+          }
+      - uses: actions/upload-artifact@v4
+        if: runner.os == 'Windows' && failure()
+        with:
+          name: installer-diagnostics
+          path: dist/installer-diagnostics/
       - uses: actions/upload-artifact@v4
         if: runner.os == 'Linux'
         with:

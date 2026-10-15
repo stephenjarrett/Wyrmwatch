@@ -97,6 +97,7 @@ function Run-Button([string]$Mode) {
 # The immutable legacy updater needs the documented one-time setup migration.
 # Verify the actual released 0.2.7 installer before executing it on this CI host.
 $legacy=Join-Path $fixture legacy-0.2.7-setup.exe
+Write-Host 'Testing released legacy installer and one-time installed-path migration.'
 gh release download v0.2.7 --repo stephenjarrett/Wyrmwatch --pattern Wyrmwatch-0.2.7-win-x64-setup.exe --output $legacy
 if($LASTEXITCODE -ne 0 -or (Get-FileHash -LiteralPath $legacy).Hash -ine 'de3e15d9652b31b8a58cbfe3304e1b2cdc7153a083293cf5d660c984db543bd6'){throw 'Released legacy installer integrity check failed'}
 Install $legacy
@@ -114,6 +115,7 @@ Wait-Agent $spec.Current | Out-Null
 Close-App
 Assert-Shortcuts $spec.Current
 Assert-Data
+Write-Host 'PASS: legacy migration, automatic workspace reopen and both real shortcut launches.'
 
 # Start a synthetic server explicitly once; app upgrades must never stop it.
 $ui=Start-App
@@ -129,11 +131,13 @@ if(-not $script:gameId){throw 'Synthetic server did not start'}
 Close-App
 $original=(Get-FileHash (Join-Path $app Wyrmwatch.dll)).Hash
 foreach($mode in @('bad-digest','bad-signature')) {
+    Write-Host "Testing real update handler rejection: $mode"
     $case=Run-Button $mode
     $result=Get-Content (Join-Path $case driver-result.json) -Raw | ConvertFrom-Json
     if(-not $result.HasError -or (Get-FileHash (Join-Path $app Wyrmwatch.dll)).Hash -cne $original){throw 'Unverified update reached installation'}
     Assert-Data
 }
+Write-Host 'Testing real download handler, installer file replacement and failure recovery.'
 $case=Run-Button failure
 Wait-Agent $spec.Current | Out-Null
 if((Get-FileHash (Join-Path $app Wyrmwatch.dll)).Hash -cne $original){throw 'Failed native upgrade did not restore previous application'}
@@ -141,6 +145,7 @@ if((Get-FileHash (Join-Path $app Wyrmwatch.dll)).Hash -cne $original){throw 'Fai
 # reopened app may already have cleaned up this completed recovery journal.
 Assert-Data
 Close-App
+Write-Host 'Testing subsequent version update and automatic reopen.'
 $case=Run-Button success
 Wait-Agent $spec.Future | Out-Null
 if((Get-FileHash (Join-Path $app Wyrmwatch.dll)).Hash -ceq $original){throw 'Subsequent update did not replace application version'}

@@ -19,8 +19,9 @@ public-key SHA-256 fingerprint
 
 Stephen confirmed manually adding the private key as the GitHub repository
 secret `WYRM_WATCH_UPDATE_SIGNING_KEY`. Only its name and update timestamp were
-verified through the API. A CI proof must verify the key matches the committed
-public key without exposing private material. The generation steps below document how the
+verified through the API. CI run 38669666401 produced a public-only signature proof
+at source `aa8a857d57f5f616f5a37527d0e4f04f4c68e965`; independent Ed25519 verification
+confirmed it matches the committed public key and fingerprint. The generation steps below document how the
 prepared key was created; do not repeat them or replace this key.
 
 ## Owner steps after approval
@@ -76,13 +77,12 @@ of this handoff.
 
 ## Current implementation boundary
 
-`SignedUpdateCatalog` and isolated tests implement strict verification and bind
-the catalog to the official GitHub release digest/size, then recheck local file
-bytes. They are a foundation only: the desktop action, replacement transaction,
-and legacy migration still require native end-to-end acceptance checks. The
-Windows action, independent recovery helper, installer file manifest, signing
-workflow and trusted release verification are implemented but not yet fully
-verified together. The public key is embedded and rejects random test signatures.
+`SignedUpdateCatalog` implements strict verification and binds the catalog to the
+official GitHub release digest/size, then rechecks local bytes before the Windows
+installer handoff. The independent recovery helper, installer file manifest,
+signing workflow and trusted release verification are implemented. Native
+end-to-end acceptance is required before release. The public key is embedded and
+rejects random test signatures.
 Do not describe the updater as complete before the native acceptance checks pass.
 
 ## Upstream references
