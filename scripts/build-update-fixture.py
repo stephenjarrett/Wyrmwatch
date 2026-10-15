@@ -40,8 +40,22 @@ build('dist/current')
 run('dotnet', 'build', 'tests/Wyrmwatch.UpdateFixture', '-c', 'Release')
 driver = fixture / 'driver'
 driver.mkdir()
-for path in (clone / 'tests/Wyrmwatch.UpdateFixture/bin/Release/net10.0').glob('Wyrmwatch.UpdateFixture.*'):
+driver_build = clone / 'tests/Wyrmwatch.UpdateFixture/bin/Release/net10.0'
+for path in driver_build.glob('Wyrmwatch.UpdateFixture.*'):
     shutil.copyfile(path, driver / path.name)
+# The untrimmed SDK-hosted test driver lists design-time facades omitted from the
+# compact application. Supply only its missing dependencies in the fixture, never
+# overwrite real packaged assemblies or add these files to release downloads.
+dependencies = json.loads((driver_build / 'Wyrmwatch.UpdateFixture.deps.json').read_text())
+for target in dependencies['targets'].values():
+    for library in target.values():
+        for asset in library.get('runtime', {}):
+            name = Path(asset).name
+            if not (clone / 'dist/current/win-x64' / name).is_file():
+                candidate = driver_build / name
+                if not candidate.is_file():
+                    raise RuntimeError('Missing native driver dependency: ' + name)
+                shutil.copyfile(candidate, driver / name)
 for name in ('Directory.Build.props', 'src/Wyrmwatch.Agent/ManagerHost.cs', 'src/Wyrmwatch.Desktop/Assets/Languages/en.json'):
     path = clone / name
     path.write_text(path.read_text(encoding='utf-8').replace(current, future), encoding='utf-8')

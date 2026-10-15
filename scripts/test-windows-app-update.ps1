@@ -104,8 +104,11 @@ function Assert-Shortcuts([string]$Version) {
 function Run-Button([string]$Mode) {
     foreach($path in Get-ChildItem -LiteralPath $spec.Driver -File){Copy-Item -LiteralPath $path.FullName -Destination $app -Force}
     $case=Join-Path $fixture $Mode
-    $start=[Diagnostics.ProcessStartInfo]::new((Join-Path $app Wyrmwatch.UpdateFixture.exe))
+    # Use the CI SDK host for this untrimmed test driver. The normal apphosts,
+    # including their bundled runtime, are exercised before/after every upgrade.
+    $start=[Diagnostics.ProcessStartInfo]::new((Get-Command dotnet).Source)
     $start.UseShellExecute=$false;$start.WorkingDirectory=$app
+    $start.ArgumentList.Add((Join-Path $app Wyrmwatch.UpdateFixture.dll))
     $start.ArgumentList.Add($workspace);$start.ArgumentList.Add($case)
     $process=[Diagnostics.Process]::Start($start)
     if(-not $process.WaitForExit(90000)){throw 'Real download handler did not finish its fixture'}
