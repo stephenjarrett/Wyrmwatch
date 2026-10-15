@@ -58,6 +58,25 @@ jobs:
           python scripts/package-installers.py win-x64 --output-root dist/fault --test-fault-after-files
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           ./scripts/test-windows-installer.ps1 -Installer (Get-ChildItem dist/*-setup.exe).FullName -FaultInstaller (Get-ChildItem dist/fault/*-setup.exe).FullName
+      - name: Collect installer diagnostics
+        if: runner.os == 'Windows' && failure()
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path dist/installer-diagnostics -Force | Out-Null
+          foreach ($fixture in Get-ChildItem "$env:TEMP/wyrmwatch-installer-*" -Directory -ErrorAction SilentlyContinue) {
+            Copy-Item "$($fixture.FullName)/*.log" dist/installer-diagnostics/ -ErrorAction SilentlyContinue
+          }
+          foreach ($journal in Get-ChildItem "$env:TEMP/wyrmwatch-install-*" -Directory -ErrorAction SilentlyContinue) {
+            foreach ($name in @('failure.json','completed.json')) {
+              $path=Join-Path $journal.FullName $name
+              if(Test-Path -LiteralPath $path){Copy-Item -LiteralPath $path -Destination "dist/installer-diagnostics/$($journal.Name)-$name"}
+            }
+          }
+      - uses: actions/upload-artifact@v4
+        if: runner.os == 'Windows' && failure()
+        with:
+          name: installer-diagnostics
+          path: dist/installer-diagnostics/
       - name: Verify low-privilege Windows service
         if: runner.os == 'Windows'
         shell: pwsh

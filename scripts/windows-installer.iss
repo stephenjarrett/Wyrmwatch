@@ -76,11 +76,16 @@ function CreateDesktopShortcut: Boolean;
 begin Result := not FileExists(ExpandConstant('{autodesktop}\Wyrmwatch.lnk')); end;
 
 function RunHelper(Parameters: String): Boolean;
-var Code: Integer;
+var Code: Integer; Diagnostic: AnsiString;
 begin
   ExtractSupport;
   Result := Exec(ExpandConstant('{tmp}\support\Wyrmwatch.exe'), Parameters,
     ExpandConstant('{tmp}\support'), SW_HIDE, ewWaitUntilTerminated, Code) and (Code = 0);
+  if not Result then begin
+    Log('Installer helper exit status: ' + IntToStr(Code));
+    if LoadStringFromFile(ExpandConstant('{tmp}\recovery-reference.txt.error.json'), Diagnostic) then
+      Log('Installer helper diagnostic: ' + String(Diagnostic));
+  end;
 end;
 
 function InitializeSetup: Boolean;

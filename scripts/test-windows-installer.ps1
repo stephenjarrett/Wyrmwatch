@@ -23,10 +23,16 @@ function Wait-Recovery {
         }
         Start-Sleep -Milliseconds 200
     } while((Get-Date) -lt $deadline)
+    foreach($log in Get-ChildItem -LiteralPath $testRoot -Filter '*.log') { Get-Content -LiteralPath $log.FullName -Tail 35 | Write-Host }
+    foreach($directory in $matching) {
+        $failure=Join-Path $directory.FullName 'failure.json'
+        if(Test-Path -LiteralPath $failure){Get-Content -LiteralPath $failure | Write-Host}
+    }
     throw 'Installer recovery did not complete; originals retained for diagnosis'
 }
 function Install-Package([string]$Source=$installerPath,[switch]$ExpectRecovery) {
-    $process=Start-Process -FilePath $Source -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-',('/DIR="'+$app+'"'),'/GROUP="Wyrmwatch Installer Test"' -WindowStyle Hidden -PassThru -Wait
+    $log=Join-Path $testRoot ('install-'+[Guid]::NewGuid().ToString('N')+'.log')
+    $process=Start-Process -FilePath $Source -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-',('/DIR="'+$app+'"'),'/GROUP="Wyrmwatch Installer Test"',('/LOG="'+$log+'"') -WindowStyle Hidden -PassThru -Wait
     if($ExpectRecovery){$script:lastRecovery=Wait-Recovery}
     return $process.ExitCode
 }

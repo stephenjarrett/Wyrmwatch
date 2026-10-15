@@ -26,12 +26,14 @@ internal static class DesktopIntegration
             }
             finally { if (shortcut is not null) System.Runtime.InteropServices.Marshal.FinalReleaseComObject(shortcut); System.Runtime.InteropServices.Marshal.FinalReleaseComObject(shell); }
             if (SafePaths.Same(target, current) || (Path.GetFileName(target).Equals("Wyrmwatch.exe", StringComparison.OrdinalIgnoreCase) && legacyRoots.Any(parent => SafePaths.Within(target, parent))))
-                RetargetShortcut(path, target, current);
+                RetargetShortcutCore(path, target, current, workspace);
         }
     }
     // Only retarget the existing application shortcut. Custom shortcuts and their
     // workspace arguments are preserved, and a failed save leaves the old link.
     internal static void RetargetShortcut(string path, string previous, string current)
+        => RetargetShortcutCore(path, previous, current, null);
+    private static void RetargetShortcutCore(string path, string previous, string current, string? workspace)
     {
         if (!OperatingSystem.IsWindows() || !File.Exists(path)) return;
         SafePaths.NoLinks(path);
@@ -50,6 +52,15 @@ internal static class DesktopIntegration
             type.InvokeMember("TargetPath", System.Reflection.BindingFlags.SetProperty, null, link, [current]);
             type.InvokeMember("WorkingDirectory", System.Reflection.BindingFlags.SetProperty, null, link, [Path.GetDirectoryName(current)!]);
             type.InvokeMember("IconLocation", System.Reflection.BindingFlags.SetProperty, null, link, [current + ",0"]);
+            if (workspace is not null)
+            {
+                var arguments = Wyrmwatch.Platform.WindowsCommandLine.ParseArguments((string)type.InvokeMember("Arguments", System.Reflection.BindingFlags.GetProperty, null, link, null)!);
+                var data = arguments.IndexOf("--data-dir");
+                if (data < 0) { arguments.Add("--data-dir"); arguments.Add(workspace); }
+                else if (data + 1 >= arguments.Count) arguments.Add(workspace);
+                else if (Directory.Exists(arguments[data + 1]) && SafePaths.Same(Wyrmwatch.Platform.WindowsPhysicalPath.ExistingDirectory(arguments[data + 1]), workspace)) arguments[data + 1] = workspace;
+                type.InvokeMember("Arguments", System.Reflection.BindingFlags.SetProperty, null, link, [Wyrmwatch.Platform.WindowsCommandLine.JoinArguments(arguments)]);
+            }
             type.InvokeMember("Save", System.Reflection.BindingFlags.InvokeMethod, null, link, null);
             File.Replace(temp, path, path + ".bak");
         }

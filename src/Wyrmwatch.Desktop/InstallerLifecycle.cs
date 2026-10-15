@@ -70,8 +70,20 @@ internal static class InstallerLifecycle
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException or ArgumentException or InvalidOperationException or System.ComponentModel.Win32Exception)
         {
-            // Exit status is enough for Inno's actionable message. Do not dump
-            // configuration, process arguments, or arbitrary file contents.
+            // Record only code locations and exception categories. Configuration,
+            // process arguments, and exception messages may contain user secrets.
+            try
+            {
+                var diagnostic = args.Contains("--installer-prepare") ? Value("--reference") + ".error.json"
+                    : args.Contains("--journal") ? Path.Combine(Value("--journal"), "failure.json") : null;
+                if (diagnostic is not null)
+                    File.WriteAllBytes(diagnostic, JsonSerializer.SerializeToUtf8Bytes(new
+                    {
+                        Error = error.GetType().Name, error.HResult,
+                        Methods = new StackTrace(error).GetFrames().Select(frame => frame.GetMethod()?.Name).ToArray()
+                    }));
+            }
+            catch (Exception diagnosticError) when (diagnosticError is IOException or UnauthorizedAccessException or ArgumentException) { }
             result = 1;
         }
         return true;

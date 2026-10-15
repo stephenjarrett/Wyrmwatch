@@ -30,6 +30,9 @@ internal static class Program
         var index = Array.IndexOf(args, "--data-dir");
         if (index >= 0 && index + 1 < args.Length) DataDirectory = Path.GetFullPath(args[index + 1]);
         if (Demo && index < 0) DataDirectory = Path.Combine(Path.GetTempPath(), "Wyrmwatch-demo");
+        Wyrmwatch.Core.SafePaths.NoLinks(DataDirectory);
+        Directory.CreateDirectory(DataDirectory);
+        DataDirectory = Wyrmwatch.Platform.WindowsPhysicalPath.ExistingDirectory(DataDirectory);
         if (OperatingSystem.IsWindows())
         {
             var outcomeIndex = Array.IndexOf(args, "--installation-result");
