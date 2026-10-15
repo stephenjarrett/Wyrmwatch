@@ -58,6 +58,7 @@ Filename: "{app}\Wyrmwatch.exe"; Description: "Open Wyrmwatch"; Flags: nowait po
 var
   SupportExtracted, InstallComplete, InstallVerified, VerificationFailed: Boolean;
   RecoveryDirectory: String;
+  PreparationFailure: String;
 
 function GetCurrentProcessId: Cardinal;
   external 'GetCurrentProcessId@kernel32.dll stdcall';
@@ -86,7 +87,13 @@ begin
   if not Result then begin
     Log('Installer helper exit status: ' + IntToStr(Code));
     if LoadStringFromFile(ExpandConstant('{tmp}\recovery-reference.txt.error.json'), Diagnostic) then
+    begin
       Log('Installer helper diagnostic: ' + String(Diagnostic));
+      if Pos('"Code":"LegacyOwnershipHelper"', String(Diagnostic)) > 0 then
+        PreparationFailure := 'An older ownership helper is still using this installation. Complete this one-time migration after explicitly stopping its server when safe. No process was closed.';
+      if Pos('"Code":"InspectionUnavailable"', String(Diagnostic)) > 0 then
+        PreparationFailure := 'Could not verify running ownership helpers. Nothing was replaced or forcibly closed.';
+    end;
   end;
 end;
 
@@ -130,8 +137,11 @@ begin
         ' --start-menu ' + AddQuotes(ExpandConstant('{group}\Wyrmwatch.lnk'));
       if ExpandConstant('{param:UPDATEWORKSPACE|}') <> '' then
         Parameters := Parameters + ' --workspace ' + AddQuotes(ExpandConstant('{param:UPDATEWORKSPACE|}'));
-      if not RunHelper(Parameters) then
-        Result := 'Could not create and verify an independent application recovery backup. Nothing was installed.'
+      PreparationFailure := '';
+      if not RunHelper(Parameters) then begin
+        if PreparationFailure <> '' then Result := PreparationFailure
+        else Result := 'Could not create and verify an independent application recovery backup. Nothing was installed.';
+      end
       else if not LoadStringFromFile(ExpandConstant('{tmp}\recovery-reference.txt'), Reference) then
         Result := 'Could not read the application recovery reference. Nothing was installed.'
       else begin

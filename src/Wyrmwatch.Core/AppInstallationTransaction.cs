@@ -139,6 +139,9 @@ public static class AppInstallationTransaction
         foreach (var file in snapshot.Files.Where(x => x.PreviousHash is not null))
         {
             var target = SafePaths.Resolve(snapshot.Root, file.Name); SafePaths.NoLinks(target);
+            // A still-loaded legacy helper can leave an original file locked.
+            // Already-correct bytes require no replacement and remain usable.
+            if (File.Exists(target) && Hash(target) == file.PreviousHash) continue;
             Directory.CreateDirectory(Path.GetDirectoryName(target)!);
             var temporary = target + ".recovery-" + Guid.NewGuid().ToString("N");
             try

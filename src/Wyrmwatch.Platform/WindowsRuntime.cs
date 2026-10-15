@@ -234,6 +234,7 @@ internal static class NativeProcesses
     }
     public static async Task KeepJobAliveAsync(string helper, string name, string directory, CancellationToken token)
     {
+        helper = DetachedJobKeeper.Prepare(helper, directory);
         var ready = Path.Combine(directory, ".job-ready-" + Guid.NewGuid().ToString("N"));
         SafePaths.NoLinks(ready);
         var start = new ProcessStartInfo(helper) { UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = Path.GetDirectoryName(helper)! };
@@ -244,7 +245,7 @@ internal static class NativeProcesses
         {
             while (!File.Exists(ready))
             {
-                if (keeper.HasExited) throw new IOException("The safe process ownership helper exited before startup was released.");
+                if (keeper.HasExited) throw new IOException($"The safe process ownership helper exited before startup was released (code {keeper.ExitCode}).");
                 await Task.Delay(10, deadline.Token);
             }
             deadline.Token.ThrowIfCancellationRequested();

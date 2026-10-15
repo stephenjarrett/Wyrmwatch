@@ -22,6 +22,7 @@ required = [executable, agent, 'Wyrmwatch.Core.dll', 'Wyrmwatch.Platform.dll', '
             'licenses/third-party/dotnet-NOTICES.txt', 'service/install-linux-service.sh']
 if args.runtime == 'win-x64':
     required += ['Wyrmwatch.Signal.exe', 'Wyrmwatch.Signal.dll',
+                 'Wyrmwatch.Signal.JobKeeper.exe',
                  'Wyrmwatch.Signal.deps.json', 'Wyrmwatch.Signal.runtimeconfig.json']
 for name in required:
     if not (folder / name).is_file():

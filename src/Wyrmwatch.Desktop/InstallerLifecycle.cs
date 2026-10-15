@@ -25,6 +25,7 @@ internal static class InstallerLifecycle
             if (args.Contains("--installer-prepare"))
             {
                 var root = Path.GetFullPath(Value("--root"));
+                Wyrmwatch.Platform.InstallationProcesses.RefuseLegacyOwnershipHelper(root);
                 var workspace = Optional("--workspace");
                 var effectiveWorkspace = workspace ?? Program.DataDirectory;
                 if (Inside(root, effectiveWorkspace) || Inside(effectiveWorkspace, root))
@@ -80,6 +81,7 @@ internal static class InstallerLifecycle
                     File.WriteAllBytes(diagnostic, JsonSerializer.SerializeToUtf8Bytes(new
                     {
                         Error = error.GetType().Name, error.HResult,
+                        Code = error.Data["InstallerCondition"] is string code && code is "LegacyOwnershipHelper" or "InspectionUnavailable" ? code : null,
                         Methods = new StackTrace(error).GetFrames().Select(frame => frame.GetMethod()?.Name).ToArray()
                     }));
             }

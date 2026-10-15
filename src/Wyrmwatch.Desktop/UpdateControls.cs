@@ -200,6 +200,7 @@ public partial class MainWindow
             {
                 var root = Wyrmwatch.Platform.WindowsPhysicalPath.ExistingDirectory(AppContext.BaseDirectory);
                 if (!File.Exists(Path.Combine(root, "unins000.exe"))) throw new IOException("Install this release once with its Windows setup program to enable updates at a stable shortcut path.");
+                await Task.Run(() => Wyrmwatch.Platform.InstallationProcesses.RefuseLegacyOwnershipHelper(root), closing.Token);
                 if (SafePaths.Same(Program.DataDirectory, root) || SafePaths.Within(Program.DataDirectory, root) || SafePaths.Within(root, Program.DataDirectory))
                     throw new IOException("The workspace must be outside the application installation before updating.");
                 foreach (var profile in settings.Servers.Concat(settings.DisconnectedServers))

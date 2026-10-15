@@ -89,6 +89,16 @@ public sealed class AppInstallationTransactionTests
     }
 
     [Fact]
+    public void UnchangedReadLockedOriginalNeedsNoReplacementDuringRecovery()
+    {
+        using var fixture = new Fixture(); fixture.Prepare();
+        var target = Path.Combine(fixture.Installed, "Wyrmwatch.exe");
+        using var loaded = new FileStream(target, FileMode.Open, FileAccess.Read, FileShare.Read);
+        AppInstallationTransaction.Restore(fixture.Journal);
+        Assert.Equal("working Wyrmwatch.exe", File.ReadAllText(target));
+    }
+
+    [Fact]
     public void LockedTargetRetainsOriginalsAndRecoveryCanBeRetried()
     {
         if (!OperatingSystem.IsWindows()) return;

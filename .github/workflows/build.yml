@@ -1,7 +1,8 @@
 name: Checks and portable builds
 on:
   push:
-    branches: [master, 'sjarrett/**']
+    # Open PRs receive pull_request checks; feature pushes must not duplicate them.
+    branches: [master]
   pull_request:
   workflow_dispatch:
 permissions:
