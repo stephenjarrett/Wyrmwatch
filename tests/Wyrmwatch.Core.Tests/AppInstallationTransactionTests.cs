@@ -20,7 +20,9 @@ public sealed class AppInstallationTransactionTests
             File.WriteAllText(Path.Combine(Incoming, "added.dll"), "new package file");
             File.WriteAllText(Path.Combine(Installed, "unrelated.txt"), "user notes");
             File.WriteAllText(Path.Combine(Root, "world.sav"), "world bytes");
-            File.WriteAllText(Path.Combine(Incoming, "retired-package-files.json"), "[\"obsolete.dll\"]");
+            File.WriteAllText(Path.Combine(Incoming, "retired-package-files.json"), "[\"obsolete.dll\",\"agent/createdump.exe\",\"agent/web.config\"]");
+            File.WriteAllText(Path.Combine(Installed, "agent", "createdump.exe"), "previous runtime diagnostic helper");
+            File.WriteAllText(Path.Combine(Installed, "agent", "web.config"), "previous generated host configuration");
             File.WriteAllText(Path.Combine(Installed, "obsolete.dll"), "previous dependency");
             var files = Directory.EnumerateFiles(Incoming, "*", SearchOption.AllDirectories).ToDictionary(
                 path => Path.GetRelativePath(Incoming, path).Replace('\\', '/'), path => Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path))));
@@ -44,6 +46,8 @@ public sealed class AppInstallationTransactionTests
         Assert.False(File.Exists(Path.Combine(fixture.Installed, "added.dll")));
         Assert.Equal("user notes", File.ReadAllText(Path.Combine(fixture.Installed, "unrelated.txt")));
         Assert.Equal("world bytes", File.ReadAllText(Path.Combine(fixture.Root, "world.sav")));
+        Assert.Equal("previous runtime diagnostic helper", File.ReadAllText(Path.Combine(fixture.Journal, "original", "agent", "createdump.exe")));
+        Assert.Equal("previous generated host configuration", File.ReadAllText(Path.Combine(fixture.Journal, "original", "agent", "web.config")));
         AppInstallationTransaction.Restore(fixture.Journal); // recovery is retryable
     }
 

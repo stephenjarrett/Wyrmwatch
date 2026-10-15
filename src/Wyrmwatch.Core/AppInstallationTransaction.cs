@@ -54,7 +54,8 @@ public static class AppInstallationTransaction
             {
                 ValidateName(name);
                 if (!(name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) || name.EndsWith(".pdb", StringComparison.OrdinalIgnoreCase) ||
-                    name.StartsWith("agent/Wyrmwatch.Agent.", StringComparison.Ordinal))) throw new IOException("Invalid retired application file.");
+                    name.StartsWith("agent/Wyrmwatch.Agent.", StringComparison.Ordinal) ||
+                    name is "agent/createdump.exe" or "agent/web.config")) throw new IOException("Invalid retired application file.");
                 names.Add(name);
             }
         // Preserve installer registration files too, so an interrupted legacy
