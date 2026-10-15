@@ -49,6 +49,22 @@ jobs:
         run: |
           python scripts/package.py ${{ matrix.runtime }}
           python scripts/package-installers.py ${{ matrix.runtime }}
+      - name: Install update signing tool
+        if: runner.os == 'Windows' && ((github.ref == 'refs/heads/master' && github.event_name != 'pull_request') || (github.ref == 'refs/heads/sjarrett/stable-app-updates' && github.event_name == 'push' && github.actor == 'stephenjarrett'))
+        shell: pwsh
+        run: dotnet tool install NetSparkleUpdater.Tools.AppCastGenerator --version 2.9.0 --allow-roll-forward --tool-path "$env:RUNNER_TEMP/netsparkle"
+      - name: Verify dedicated signing key without publishing an update
+        if: runner.os == 'Windows' && github.ref == 'refs/heads/sjarrett/stable-app-updates' && github.event_name == 'push' && github.actor == 'stephenjarrett'
+        shell: pwsh
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.WYRM_WATCH_UPDATE_SIGNING_KEY }}
+        run: ./scripts/test-update-signing.ps1 -Tool "$env:RUNNER_TEMP/netsparkle/netsparkle-generate-appcast.exe" -Output "$env:RUNNER_TEMP/signing-proof"
+      - uses: actions/upload-artifact@v4
+        if: runner.os == 'Windows' && github.ref == 'refs/heads/sjarrett/stable-app-updates' && github.event_name == 'push' && github.actor == 'stephenjarrett'
+        with:
+          name: update-signing-proof
+          path: ${{ runner.temp }}/signing-proof/
+          if-no-files-found: error
       - name: Verify Windows installer lifecycle
         if: runner.os == 'Windows'
         shell: pwsh
@@ -84,27 +100,20 @@ jobs:
           dotnet publish tests/FixtureServer -c Release -r win-x64 --self-contained true -o dist/service-fixture
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           ./scripts/test-windows-service.ps1 -ApplicationDirectory dist/win-x64 -FixtureDirectory dist/service-fixture
+      - name: Verify complete Windows app update flow
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python scripts/build-update-fixture.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./scripts/test-windows-app-update.ps1
       - uses: actions/upload-artifact@v4
         if: runner.os == 'Linux'
         with:
           name: Linux-desktop-smoke
           path: dist/linux-desktop-smoke.png
-          if-no-files-found: error
-      - name: Install update signing tool
-        if: runner.os == 'Windows' && ((github.ref == 'refs/heads/master' && github.event_name != 'pull_request') || (github.ref == 'refs/heads/sjarrett/stable-app-updates' && github.event_name == 'push' && github.actor == 'stephenjarrett'))
-        shell: pwsh
-        run: dotnet tool install NetSparkleUpdater.Tools.AppCastGenerator --version 2.9.0 --allow-roll-forward --tool-path "$env:RUNNER_TEMP/netsparkle"
-      - name: Verify dedicated signing key without publishing an update
-        if: runner.os == 'Windows' && github.ref == 'refs/heads/sjarrett/stable-app-updates' && github.event_name == 'push' && github.actor == 'stephenjarrett'
-        shell: pwsh
-        env:
-          SPARKLE_PRIVATE_KEY: ${{ secrets.WYRM_WATCH_UPDATE_SIGNING_KEY }}
-        run: ./scripts/test-update-signing.ps1 -Tool "$env:RUNNER_TEMP/netsparkle/netsparkle-generate-appcast.exe" -Output "$env:RUNNER_TEMP/signing-proof"
-      - uses: actions/upload-artifact@v4
-        if: runner.os == 'Windows' && github.ref == 'refs/heads/sjarrett/stable-app-updates' && github.event_name == 'push' && github.actor == 'stephenjarrett'
-        with:
-          name: update-signing-proof
-          path: ${{ runner.temp }}/signing-proof/
           if-no-files-found: error
       - name: Sign Windows update catalog
         if: runner.os == 'Windows' && github.ref == 'refs/heads/master' && github.event_name != 'pull_request'

@@ -83,7 +83,7 @@ public partial class MainWindow
         UpdateAppUpdateControls();
     }
     private async void CheckManagerUpdate(object? sender, RoutedEventArgs e) => await CheckManagerUpdateAsync();
-    private async Task CheckManagerUpdateAsync()
+    internal async Task CheckManagerUpdateAsync()
     {
         if (checkingApp || downloadingApp || switchingApp || Program.Demo || Program.HeadlessTest) return;
         checkingApp = true;
