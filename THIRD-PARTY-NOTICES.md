@@ -4,6 +4,8 @@ Wyrmwatch's original project material is licensed under AGPL-3.0-only. The compo
 
 | Component | Version in this build | License / included notices |
 | --- | --- | --- |
+| NetSparkleUpdater.SparkleUpdater | 3.1.0 | [MIT](licenses/third-party/NetSparkle-MIT.txt) |
+| NetSparkleUpdater.Chaos.NaCl | 0.9.4 | [MIT](licenses/third-party/Chaos.NaCl-MIT.txt) |
 | Avalonia and its Desktop, platform, Fluent theme, font wrapper, rendering, and protocol packages | 12.1.3 | [MIT](licenses/third-party/Avalonia-MIT.txt) |
 | ANGLE Windows native libraries | 2.1.27548.20260419 | [Upstream license](licenses/third-party/ANGLE-LICENSE.txt) |
 | Inter font files | Bundled by Avalonia.Fonts.Inter 12.1.3 | [SIL Open Font License 1.1](licenses/third-party/Inter-OFL.txt) |
@@ -18,6 +20,8 @@ Wyrmwatch's original project material is licensed under AGPL-3.0-only. The compo
 Avalonia package metadata also records: Copyright 2013-2026 © The AvaloniaUI Project. MicroCom package metadata records: Copyright 2021 © Nikita Tsukanov. Tmds.DBus package metadata records: Tom Deseyn. The original notices are retained in the linked license files.
 
 ## Sources
+
+- NetSparkle: [license at the pinned 3.1.0 source](https://github.com/NetSparkleUpdater/NetSparkle/blob/b3df04ab2d06230a28e12cfd7c613d25e27d2672/LICENSE.md). Chaos.NaCl: the `LICENSE.md` included in the resolved 0.9.4 NuGet package, source revision `918eeb5ce31f1ac6cf041fbd4e6e83708bd461b1`.
 
 - Avalonia: [license at the package's source commit](https://github.com/AvaloniaUI/Avalonia/blob/8eeda4f6f546165b3f72e63c9f42247abb306905/licence.md).
 - Inter: [official font license](https://github.com/rsms/inter/blob/master/LICENSE.txt). The font's own OFL terms are separate from the Avalonia wrapper's MIT terms.

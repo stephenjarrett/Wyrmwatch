@@ -7,6 +7,7 @@
     <AvaloniaUseCompiledBindingsByDefault>false</AvaloniaUseCompiledBindingsByDefault>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="NetSparkleUpdater.SparkleUpdater" Version="3.1.0" />
     <PackageReference Include="Avalonia" Version="12.1.3" />
     <PackageReference Include="Avalonia.Desktop" Version="12.1.3" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.3" />
@@ -16,6 +17,7 @@
     <ProjectReference Include="../Wyrmwatch.Signal/Wyrmwatch.Signal.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="../Wyrmwatch.Agent/Wyrmwatch.Agent.csproj" ReferenceOutputAssembly="false" />
     <AvaloniaResource Include="Assets/**" />
+    <EmbeddedResource Include="Assets/UpdateSigning.pub" LogicalName="Wyrmwatch.UpdateSigning.pub" />
   </ItemGroup>
   <Target Name="CopySignalHelper" AfterTargets="Build">
     <ItemGroup><SignalFiles Include="../Wyrmwatch.Signal/bin/$(Configuration)/net10.0/Wyrmwatch.Signal*" /></ItemGroup>
