@@ -21,7 +21,15 @@ $configHash=(Get-FileHash -LiteralPath $configuration).Hash
 # This explicitly selected synthetic server runs no game code.
 dotnet publish tests/FixtureServer -c Release --no-self-contained -o "$game" | Out-Null
 if($LASTEXITCODE -ne 0){throw 'Synthetic server build failed'}
-Set-Content -LiteralPath (Join-Path $game window-console) -Value 'fixture'
+# Model the actual launcher-to-shipping handoff. The shutdown guard deliberately
+# accepts a graphical console only on this exact shipping executable identity.
+$shipping=Join-Path $game 'RSDragonwilds/Binaries/Win64'
+New-Item -ItemType Directory -Path $shipping -Force | Out-Null
+foreach($binary in Get-ChildItem -LiteralPath $game -File){Copy-Item -LiteralPath $binary.FullName -Destination $shipping}
+$syntheticExecutable=Join-Path $shipping 'RSDragonwildsServer-Win64-Shipping.exe'
+Copy-Item -LiteralPath (Join-Path $shipping RSDragonwildsServer.exe) -Destination $syntheticExecutable
+Set-Content -LiteralPath (Join-Path $game launcher-handoff) -Value 'fixture'
+Set-Content -LiteralPath (Join-Path $shipping window-console) -Value 'fixture'
 $profile=@{Id='upgrade-fixture';Name='Upgrade fixture';InstallPath=$game;BackupPath=(Join-Path $fixture backups);Port=17789;AutoUpdate=$false;AutoBackup=$false}
 @{Servers=@($profile);SelectedServerId=$profile.Id;CloseToTray=$false;BackgroundMode=$false;FollowLog=$false} | ConvertTo-Json -Depth 10 | Set-Content (Join-Path $workspace settings.json) -Encoding utf8
 
@@ -71,7 +79,7 @@ function Assert-Data {
     if((Get-FileHash -LiteralPath $world).Hash -cne $worldHash -or (Get-FileHash -LiteralPath $configuration).Hash -cne $configHash){throw 'Upgrade changed isolated game data'}
     if($script:gameId) {
         $running=Get-Process -Id $script:gameId -ErrorAction SilentlyContinue
-        if(-not $running -or $running.Path -ne $script:gameExecutable -or $running.StartTime.ToUniversalTime().Ticks -ne $script:gameStartTicks -or (Test-Path (Join-Path $game shutdown.requested))){throw 'App update did not preserve the exact synthetic game process'}
+        if(-not $running -or $running.Path -ne $script:gameExecutable -or $running.StartTime.ToUniversalTime().Ticks -ne $script:gameStartTicks -or (Test-Path (Join-Path $shipping shutdown.requested))){throw 'App update did not preserve the exact synthetic game process'}
     }
     if($script:credentialHash -and (Get-FileHash -LiteralPath (Join-Path $workspace server-admin-passwords.json)).Hash -cne $script:credentialHash){throw 'App update changed the retained credential file'}
 }
@@ -161,7 +169,7 @@ Set-Content -LiteralPath $configuration -Value $rewritten -NoNewline -Encoding u
 $configHash=(Get-FileHash -LiteralPath $configuration).Hash
 $deadline=(Get-Date).AddSeconds(20)
 do {
-    $synthetic=@(Get-Process RSDragonwildsServer -ErrorAction SilentlyContinue | Where-Object {$_.Path -eq (Join-Path $game RSDragonwildsServer.exe)})
+    $synthetic=@(Get-Process RSDragonwildsServer-Win64-Shipping -ErrorAction SilentlyContinue | Where-Object {$_.Path -eq $syntheticExecutable})
     if($synthetic.Count -eq 1){$script:gameId=$synthetic[0].Id;$script:gameExecutable=$synthetic[0].Path;$script:gameStartTicks=$synthetic[0].StartTime.ToUniversalTime().Ticks;break}
     Start-Sleep -Milliseconds 200
 } while((Get-Date) -lt $deadline)
@@ -199,6 +207,8 @@ Request Post '/api/servers/upgrade-fixture/actions' @{Action='stop'} | Out-Null
 Request Post '/api/servers/upgrade-fixture/actions' @{Action='start'} | Out-Null
 if((Get-Content -LiteralPath $configuration -Raw) -notmatch '(?m)^AdminPassword=disposable-fixture-only\r?$'){throw 'Subsequent version did not reapply the retained synthetic password before start'}
 Request Post '/api/servers/upgrade-fixture/actions' @{Action='stop'} | Out-Null
+if((Get-Content -LiteralPath (Join-Path $shipping shutdown.requested) -Raw).Trim() -ne 'graceful'){throw 'Updated shipping fixture did not shut down gracefully'}
+if((Get-FileHash -LiteralPath $world).Hash -cne $worldHash){throw 'Final fixture shutdown changed world data'}
 Close-App
 $uninstall=Start-Process (Join-Path $app unins000.exe) -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -WindowStyle Hidden -PassThru -Wait
 if($uninstall.ExitCode -ne 0){throw 'Fixture uninstall failed'}

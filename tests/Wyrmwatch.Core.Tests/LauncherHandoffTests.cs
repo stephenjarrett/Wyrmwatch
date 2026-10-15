@@ -16,7 +16,8 @@ public class LauncherHandoffTests
     [InlineData(false, false, true)]
     [InlineData(false, true, true)]
     [InlineData(false, false, true, false)]
-    public async Task LauncherExitRetainsOwnershipAndGracefulShutdownAfterManagerRestart(bool shellExec, bool cancelBeforeFirstInspection, bool graphical, bool recognized = true)
+    [InlineData(false, false, true, true, false)]
+    public async Task LauncherExitRetainsOwnershipAndGracefulShutdownAfterManagerRestart(bool shellExec, bool cancelBeforeFirstInspection, bool graphical, bool recognized = true, bool shippingIdentity = true)
     {
         if (!OperatingSystem.IsWindows() && !OperatingSystem.IsLinux()) return;
         if (OperatingSystem.IsWindows() && shellExec) return;
@@ -32,14 +33,18 @@ public class LauncherHandoffTests
             File.Copy(file, Path.Combine(install, Path.GetFileName(file)));
             File.Copy(file, Path.Combine(shipping, Path.GetFileName(file)));
         }
-        var executable = Path.Combine(shipping, OperatingSystem.IsWindows() ? "RSDragonwildsServer-Win64-Shipping.exe" : "RSDragonwildsServer");
+        var consoleRoot = shippingIdentity ? shipping : install;
+        var executable = Path.Combine(consoleRoot, OperatingSystem.IsWindows() ? shippingIdentity ? "RSDragonwildsServer-Win64-Shipping.exe" : "RSDragonwildsServer.exe" : "RSDragonwildsServer");
         var launcher = Path.Combine(install, OperatingSystem.IsWindows() ? "RSDragonwildsServer.exe" : "RSDragonwildsServer.sh");
         if (OperatingSystem.IsWindows())
         {
-            File.Copy(Path.Combine(shipping, "RSDragonwildsServer.exe"), executable);
-            File.WriteAllText(Path.Combine(install, "launcher-handoff"), "fixture");
-            if (graphical) File.WriteAllText(Path.Combine(shipping, "window-console"), "fixture");
-            if (!recognized) File.WriteAllText(Path.Combine(shipping, "unrecognized-window"), "fixture");
+            if (shippingIdentity)
+            {
+                File.Copy(Path.Combine(shipping, "RSDragonwildsServer.exe"), executable);
+                File.WriteAllText(Path.Combine(install, "launcher-handoff"), "fixture");
+            }
+            if (graphical) File.WriteAllText(Path.Combine(consoleRoot, "window-console"), "fixture");
+            if (!recognized) File.WriteAllText(Path.Combine(consoleRoot, "unrecognized-window"), "fixture");
         }
         else
         {
@@ -52,7 +57,8 @@ public class LauncherHandoffTests
         File.WriteAllText(profile.ConfigPath, File.ReadAllText(profile.ConfigPath).Replace("Port=7777", "Port=" + port));
         IServerRuntime MakeRuntime()
         {
-            IServerRuntime runtime = OperatingSystem.IsWindows() ? new WindowsRuntime(new(fixture.Root), Path.Combine(AppContext.BaseDirectory, "Wyrmwatch.Signal.exe")) : new LinuxRuntime(new(fixture.Root));
+            var signal = Path.Combine(Environment.GetEnvironmentVariable("WYRM_WATCH_TEST_PUBLISHED_APP") ?? AppContext.BaseDirectory, "Wyrmwatch.Signal.exe");
+            IServerRuntime runtime = OperatingSystem.IsWindows() ? new WindowsRuntime(new(fixture.Root), signal) : new LinuxRuntime(new(fixture.Root));
             return runtime;
         }
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(25));
@@ -87,15 +93,15 @@ public class LauncherHandoffTests
             var restarted = MakeRuntime();
             Assert.True((await restarted.InspectAsync(profile, timeout.Token)).Running);
             if (graphical)
-                while (!File.Exists(Path.Combine(shipping, "window.ready"))) await Task.Delay(10, timeout.Token);
+                while (!File.Exists(Path.Combine(consoleRoot, "window.ready"))) await Task.Delay(10, timeout.Token);
             var world = Path.Combine(profile.SavedPath, "SaveGames", "world.sav");
             var originalWorld = File.ReadAllBytes(world);
-            if (!recognized)
+            if (!recognized || !shippingIdentity)
             {
                 var refusal = await Assert.ThrowsAsync<IOException>(() => restarted.StopAsync(profile, timeout.Token));
                 Assert.Contains("no Windows text console or recognized game console window", refusal.Message);
                 Assert.True((await restarted.InspectAsync(profile, timeout.Token)).Running);
-                Assert.False(File.Exists(Path.Combine(shipping, "shutdown.requested")));
+                Assert.False(File.Exists(Path.Combine(consoleRoot, "shutdown.requested")));
                 Assert.Equal(originalWorld, File.ReadAllBytes(world));
                 completed = true;
                 return;
