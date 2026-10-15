@@ -52,11 +52,11 @@ Name: "{group}\Wyrmwatch"; Filename: "{app}\Wyrmwatch.exe"; WorkingDir: "{app}";
 Name: "{autodesktop}\Wyrmwatch"; Filename: "{app}\Wyrmwatch.exe"; WorkingDir: "{app}"; Tasks: desktopicon; Check: CreateDesktopShortcut
 
 [Run]
-Filename: "{app}\Wyrmwatch.exe"; Description: "Open Wyrmwatch"; Flags: nowait postinstall skipifsilent unchecked
+Filename: "{app}\Wyrmwatch.exe"; Description: "Open Wyrmwatch"; Flags: nowait postinstall skipifsilent unchecked; Check: CanOpenApplication
 
 [Code]
 var
-  SupportExtracted, InstallComplete: Boolean;
+  SupportExtracted, InstallComplete, InstallVerified, VerificationFailed: Boolean;
   RecoveryDirectory: String;
 
 function GetCurrentProcessId: Cardinal;
@@ -74,6 +74,8 @@ function CreateStartMenuShortcut: Boolean;
 begin Result := not FileExists(ExpandConstant('{group}\Wyrmwatch.lnk')); end;
 function CreateDesktopShortcut: Boolean;
 begin Result := not FileExists(ExpandConstant('{autodesktop}\Wyrmwatch.lnk')); end;
+function CanOpenApplication: Boolean;
+begin Result := InstallVerified and not VerificationFailed; end;
 
 function RunHelper(Parameters: String): Boolean;
 var Code: Integer; Diagnostic: AnsiString;
@@ -147,12 +149,22 @@ begin
   if CurStep = ssPostInstall then begin
 #ifdef FaultAfterFiles
     SaveStringToFile(RecoveryDirectory + '\fault-observed.txt', GetSHA256OfFile(ExpandConstant('{app}\README.md')), False);
-    RaiseException('Intentional fixture failure after application files were replaced.');
+    VerificationFailed := True;
+    Log('Intentional fixture failure after application files were replaced.');
+    Exit;
 #endif
-    if (RecoveryDirectory = '') or not RunHelper('--installer-verify --journal ' + AddQuotes(RecoveryDirectory)) then
-      RaiseException('Installed application verification failed. The previous application will be restored after Setup exits.');
+    InstallVerified := (RecoveryDirectory <> '') and RunHelper('--installer-verify --journal ' + AddQuotes(RecoveryDirectory));
+    if not InstallVerified then begin
+      VerificationFailed := True;
+      Log('Installed application verification failed. The previous application will be restored after Setup exits.');
+    end;
   end;
-  if CurStep = ssDone then InstallComplete := True;
+  if CurStep = ssDone then InstallComplete := InstallVerified and not VerificationFailed;
+end;
+
+function GetCustomSetupExitCode: Integer;
+begin
+  if VerificationFailed then Result := 1 else Result := 0;
 end;
 
 procedure DeinitializeSetup;

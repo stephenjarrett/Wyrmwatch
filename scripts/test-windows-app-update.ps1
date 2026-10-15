@@ -67,7 +67,9 @@ function Assert-Data {
 function Assert-Shortcuts([string]$Version) {
     $shell=New-Object -ComObject WScript.Shell
     try {
-        foreach($path in @((Join-Path ([Environment]::GetFolderPath('DesktopDirectory')) Wyrmwatch.lnk),(Join-Path ([Environment]::GetFolderPath('Programs')) 'Wyrmwatch Update Fixture/Wyrmwatch.lnk'))) {
+        # Inno ignores /GROUP when DisableProgramGroupPage=yes; use the actual
+        # canonical Start menu location created by the released installer.
+        foreach($path in @((Join-Path ([Environment]::GetFolderPath('DesktopDirectory')) Wyrmwatch.lnk),(Join-Path ([Environment]::GetFolderPath('Programs')) 'Wyrmwatch/Wyrmwatch.lnk'))) {
             $link=$shell.CreateShortcut($path)
             try {
                 if($link.TargetPath -ne (Join-Path $app Wyrmwatch.exe) -or -not $link.Arguments.Contains($workspace)){throw 'Shortcut does not preserve installed path and workspace'}
