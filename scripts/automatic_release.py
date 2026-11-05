@@ -134,6 +134,13 @@ class AutomaticRelease:
         allowed = {".github/workflows/build.yml", ".github/workflows/release.yml", ".github/workflows/release-handoff.yml",
                    "scripts/manage-release.py", "scripts/release-handoff.py", "scripts/automatic_release.py",
                    "docs/releasing.md"}
+        # This disposable inspection actor is test-only, not an application or
+        # packaging input. Keep the exception exact rather than exempting tests.
+        fixture = "tests/Wyrmwatch.Core.Tests/LinuxInspectionRaceTests.cs"
+        if fixture in changed:
+            if any(tree.get(fixture, ())[:2] != ("100644", "blob") for tree in trees):
+                return False
+            allowed.add(fixture)
         if ".github/workflows/build.yml" in changed:
             # Build/package changes are release inputs. Only an appended final
             # notification job may differ without creating a new app release.

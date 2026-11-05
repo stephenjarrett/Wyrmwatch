@@ -55,13 +55,36 @@ class Handoff:
     def runs(self, manager, packages=False):
         runs = {}
         queries = [(manager.tag, manager.head), ("master", manager.control_head)] if packages else [("master", manager.head)]
+        workflow = "release.yml" if packages else "build.yml"
         for branch, head in queries:
-            result = self.api.api(f"{self.root}/actions/runs?branch={branch}"
-                                  f"&head_sha={head}&per_page=100")
-            policy.require(result["total_count"] <= 100, "Run discovery requires pagination; refuse ambiguous results")
-            for run in result["workflow_runs"]:
-                if self.trusted(run, manager, packages):
-                    runs[run["id"]] = run
+            # Recovery runs must not bury the source checks that they discover.
+            # Scope by workflow, then inspect every page before trusting a result.
+            query = (f"{self.root}/actions/workflows/{workflow}/runs?branch={branch}"
+                     f"&head_sha={head}&per_page=100")
+            expected, seen, page = None, set(), 1
+            while True:
+                result = self.api.api(f"{query}&page={page}")
+                total = result["total_count"]
+                # Filtered GitHub searches expose at most 1,000 runs. Reaching
+                # that ceiling cannot prove that an ambiguous run is absent.
+                policy.require(type(total) is int and 0 <= total < 1000,
+                               "Run discovery reached GitHub's search limit; refuse incomplete results")
+                if expected is None:
+                    expected = total
+                policy.require(total == expected, "Run inventory changed during discovery; retry on the next handoff")
+                batch = result["workflow_runs"]
+                policy.require(len(batch) == min(100, expected - len(seen)),
+                               "Incomplete run discovery page; publication is blocked")
+                for run in batch:
+                    run_id = run["id"]
+                    policy.require(type(run_id) is int and run_id > 0 and run_id not in seen,
+                                   "Duplicate or invalid run in discovery; publication is blocked")
+                    seen.add(run_id)
+                    if self.trusted(run, manager, packages):
+                        runs[run_id] = run
+                if len(seen) == expected:
+                    break
+                page += 1
         return list(runs.values())
 
     def await_callback(self, value, attempts=25, interval=5):

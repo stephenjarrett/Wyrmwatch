@@ -294,12 +294,47 @@ class CallbackReleaseTests(unittest.TestCase):
         self.assertIn("requires no patch", auto.run(auto.handoff.await_callback("3")))
         self.assertEqual(snapshot, (self.api.release, self.api.refs, self.api.tag_sha, self.api.mutations))
 
+    def test_linux_inspection_fixture_repair_preserves_public_release_without_patch(self):
+        auto = self.published_repair()
+        path = "tests/Wyrmwatch.Core.Tests/LinuxInspectionRaceTests.cs"
+        self.api.files[HEAD][path] = "Old disposable actor"
+        self.api.files[auto.manager.head][path] = "Ready disposable actor"
+        snapshot = copy.deepcopy((self.api.release, self.api.refs, self.api.tag_sha, self.api.master, self.api.mutations))
+        for event in (None, auto.handoff.await_callback("3")):
+            self.assertIn("requires no patch", auto.run(event))
+        self.assertEqual(snapshot, (self.api.release, self.api.refs, self.api.tag_sha, self.api.master, self.api.mutations))
+
+    def test_linux_inspection_fixture_exception_requires_existing_regular_file(self):
+        path = "tests/Wyrmwatch.Core.Tests/LinuxInspectionRaceTests.cs"
+        for fault in ("added", "deleted", "symlink", "executable"):
+            with self.subTest(fault=fault):
+                self.setUp()
+                auto = self.published_repair()
+                self.api.files[HEAD][path] = "Old disposable actor"
+                self.api.files[auto.manager.head][path] = "Ready disposable actor"
+                if fault == "added": del self.api.files[HEAD][path]
+                if fault == "deleted": del self.api.files[auto.manager.head][path]
+                original = self.api.api
+                def changed_mode(url, method="GET", payload=None):
+                    result = original(url, method, payload)
+                    if "/git/trees/" in url and auto.manager.head in url and fault in {"symlink", "executable"}:
+                        next(e for e in result["tree"] if e["path"] == path)["mode"] = "120000" if fault == "symlink" else "100755"
+                    return result
+                with patch.object(self.api, "api", side_effect=changed_mode):
+                    self.assertFalse(auto.orchestration_only(HEAD))
+
     def test_application_version_packaging_and_hold_changes_require_normal_release_policy(self):
         for path in ("unchanged.cs", automatic.PROPS, "scripts/package-release.ps1",
-                     "docs/releases/publication-holds.json"):
+                     "docs/releases/publication-holds.json",
+                     "tests/Wyrmwatch.Core.Tests/OtherInspectionRaceTests.cs",
+                     "tests/Wyrmwatch.Core.Tests/Wyrmwatch.Core.Tests.csproj",
+                     "tests/FixtureServer/Program.cs"):
             with self.subTest(path=path):
                 self.setUp()
                 auto = self.published_repair()
+                fixture = "tests/Wyrmwatch.Core.Tests/LinuxInspectionRaceTests.cs"
+                self.api.files[HEAD][fixture] = "Old disposable actor"
+                self.api.files[auto.manager.head][fixture] = "Ready disposable actor"
                 self.api.files[auto.manager.head][path] = "Application or release-input change"
                 self.assertFalse(auto.orchestration_only(HEAD))
 

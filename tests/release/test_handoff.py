@@ -39,12 +39,15 @@ class HandoffGh(FakeGh):
         if self.deny_api:
             raise policy.ReleaseError("Resource not accessible by integration")
         suffix = path.removeprefix("repos/" + REPOSITORY)
-        if suffix.startswith("/actions/runs?"):
+        if suffix.startswith("/actions/runs?") or (suffix.startswith("/actions/workflows/") and "/runs?" in suffix):
+            workflow = suffix.split("/")[3] if suffix.startswith("/actions/workflows/") else None
             query = parse_qs(suffix.split("?", 1)[1])
             matches = [copy.deepcopy(self.runs[run_id]) for run_id in self.visible_runs
                        if self.runs[run_id]["head_sha"] == query["head_sha"][0]
-                       and self.runs[run_id]["head_branch"] == query["branch"][0]]
-            return {"total_count": len(matches), "workflow_runs": matches}
+                       and self.runs[run_id]["head_branch"] == query["branch"][0]
+                       and (workflow is None or self.runs[run_id]["path"] == ".github/workflows/" + workflow)]
+            size, page = int(query["per_page"][0]), int(query.get("page", ["1"])[0])
+            return {"total_count": len(matches), "workflow_runs": matches[(page - 1) * size:page * size]}
         if suffix.startswith("/actions/runs/") and suffix.rsplit("/", 1)[1].isdigit():
             return copy.deepcopy(self.runs[int(suffix.rsplit("/", 1)[1])])
         if suffix.startswith("/contents/"):
