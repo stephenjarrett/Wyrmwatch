@@ -17,13 +17,29 @@ public class LinuxInspectionRaceTests
         if (!OperatingSystem.IsLinux()) return;
         var root = Path.Combine(Path.GetTempPath(), "wyrmwatch-inspection-test-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
-        var executable = Path.Combine(root, "RSDragonwildsFixture");
-        File.Copy("/bin/sleep", executable);
+        // System sleep can be a multicall binary whose behavior depends on its
+        // filename. Use our own actor, with an explicit readiness handshake.
+        foreach (var file in Directory.GetFiles(Path.Combine(AppContext.BaseDirectory, "fixture")))
+            File.Copy(file, Path.Combine(root, Path.GetFileName(file)));
+        var executable = Path.Combine(root, "RSDragonwildsServer");
         File.SetUnixFileMode(executable, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
-        using var actor = Process.Start(new ProcessStartInfo(executable) { UseShellExecute = false, ArgumentList = { "20" } })!;
+        using var actor = Process.Start(new ProcessStartInfo(executable)
+        {
+            UseShellExecute = false, RedirectStandardError = true, ArgumentList = { "-Port=0" }
+        })!;
         var reached = false;
         try
         {
+            using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            while (!File.Exists(Path.Combine(root, "server.ready")))
+            {
+                if (actor.HasExited)
+                    throw new IOException($"Disposable inspection fixture exited with code {actor.ExitCode} before readiness: {await actor.StandardError.ReadToEndAsync()}");
+                await Task.Delay(10, deadline.Token);
+            }
+            actor.Refresh();
+            Assert.False(actor.HasExited);
+            Assert.StartsWith("RSDragonwilds", actor.ProcessName);
             var profile = new ServerProfile { InstallPath = Path.Combine(root, "never-started"), BackupPath = Path.Combine(root, "backups") };
             var runtime = new LinuxRuntime(new JsonStore(Path.Combine(root, "workspace")))
             {
